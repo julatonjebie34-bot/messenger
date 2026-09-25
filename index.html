@@ -212,6 +212,11 @@
   let myId = null;
   let myName = null;
   let subscribed = false;
+  const pendingIds = new Set(); // client-generated ids for messages we've already rendered optimistically
+
+  function makeClientId() {
+    return 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+  }
 
   function renderAll(rows) {
     feed.innerHTML = '';
@@ -228,6 +233,7 @@
     const isMe = m.uid === myId;
     const row = document.createElement('div');
     row.className = 'row ' + (isMe ? 'me' : 'other');
+    if (m._tempId) row.dataset.tempId = m._tempId;
 
     const avatar = document.createElement('div');
     avatar.className = 'avatar';
@@ -271,24 +277,48 @@
       client
         .channel('public:messages')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-          addRow(payload.new, true);
+          const m = payload.new;
+          if (m.uid === myId) {
+            const idx = pendingByText.findIndex(p => p.text === m.text);
+            if (idx !== -1) {
+              // Already drawn optimistically, this is just the server echo. Skip the redraw.
+              pendingByText.splice(idx, 1);
+              return;
+            }
+          }
+          addRow(m, true);
         })
         .subscribe();
     }
   }
+
+  // Messages we've drawn locally before the server confirms them, keyed by a client-generated id.
+  // When the realtime INSERT event for our own message arrives, we match it here instead of
+  // drawing it a second time.
+  const pendingByText = []; // FIFO of { tempId, text }
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = input.value.trim();
     if (!text || !myId) return;
     input.value = '';
-    sendBtn.disabled = true;
+    sendBtn.disabled = false; // keep composer usable immediately, no waiting on the network
+    input.focus();
+
+    const tempId = makeClientId();
+    pendingByText.push({ tempId, text });
+    addRow({ uid: myId, username: myName, text, _tempId: tempId }, true);
+
     const { error: insErr } = await client.from('messages').insert({
       uid: myId, username: myName, text: text
     });
-    if (insErr) showBanner('Could not send: ' + insErr.message);
-    sendBtn.disabled = false;
-    input.focus();
+    if (insErr) {
+      showBanner('Could not send: ' + insErr.message);
+      const idx = pendingByText.findIndex(p => p.tempId === tempId);
+      if (idx !== -1) pendingByText.splice(idx, 1);
+      const el = feed.querySelector(`[data-temp-id="${tempId}"]`);
+      if (el) el.remove();
+    }
   });
 
   client.auth.onAuthStateChange((event, session) => {
