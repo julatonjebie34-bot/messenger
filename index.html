@@ -124,7 +124,11 @@
     border-bottom:1px solid var(--border); font-weight:600; font-size:15px; flex-shrink:0; }
   .panel-header button { border:none; background:var(--bg); color:var(--muted); width:28px; height:28px;
     border-radius:50%; cursor:pointer; font-size:13px; }
+  #contactSearch { margin:10px 12px; padding:10px 13px; border:1px solid var(--border); border-radius:20px;
+    background:var(--bg); color:var(--text); font-size:14px; outline:none; width:calc(100% - 24px); flex-shrink:0; }
   #contactsList { flex:1; overflow-y:auto; }
+  .contact-item .cinfo { min-width:0; display:flex; flex-direction:column; }
+  .contact-item .cemail { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .contact-item { display:flex; align-items:center; gap:10px; padding:12px 16px; cursor:pointer; }
   .contact-item:active, .contact-item.active { background:var(--bg); }
   .contact-item .avatar { width:32px; height:32px; }
@@ -166,6 +170,7 @@
       <span>Chats</span>
       <button id="closeContacts" type="button">✕</button>
     </div>
+    <input id="contactSearch" type="search" placeholder="Search name or email…" autocomplete="off" />
     <div id="contactsList"><div class="contact-empty">Loading…</div></div>
   </div>
 </div>
@@ -219,6 +224,7 @@
   const contactsOverlay = document.getElementById('contactsOverlay');
   const closeContacts = document.getElementById('closeContacts');
   const contactsList = document.getElementById('contactsList');
+  const contactSearch = document.getElementById('contactSearch');
 
   const lightbox = document.getElementById('lightbox');
   const lbContent = document.getElementById('lbContent');
@@ -336,13 +342,18 @@
   async function ensureProfile() {
     if (!myId) return;
     try {
-      await client.from('profiles').upsert({ id: myId, username: myName }, { onConflict: 'id' });
+      const { data: userData } = await client.auth.getUser();
+      const email = userData?.user?.email || '';
+      await client.from('profiles').upsert(
+        { id: myId, username: myName, email },
+        { onConflict: 'id' }
+      );
     } catch (e) { /* profiles table may not be set up yet; contacts list will explain */ }
   }
 
   async function loadContacts() {
     if (!myId) return;
-    const { data, error } = await client.from('profiles').select('id, username').neq('id', myId).order('username');
+    const { data, error } = await client.from('profiles').select('id, username, email').neq('id', myId).order('username');
     if (error) {
       contacts = [];
       renderContacts();
@@ -355,6 +366,13 @@
 
   function renderContacts() {
     contactsList.innerHTML = '';
+
+    const search = (contactSearch.value || '').trim().toLowerCase();
+    const filtered = contacts.filter(c => {
+      const name = (c.username || '').toLowerCase();
+      const email = (c.email || '').toLowerCase();
+      return !search || name.includes(search) || email.includes(search);
+    });
 
     const groupItem = document.createElement('div');
     groupItem.className = 'contact-item' + (currentChat.type === 'group' ? ' active' : '');
@@ -377,17 +395,31 @@
       contactsList.appendChild(empty);
       return;
     }
-    for (const c of contacts) {
+    if (!filtered.length) {
+      const empty = document.createElement('div');
+      empty.className = 'contact-empty';
+      empty.textContent = 'No users found.';
+      contactsList.appendChild(empty);
+      return;
+    }
+    for (const c of filtered) {
       const item = document.createElement('div');
       item.className = 'contact-item' + (currentChat.type === 'dm' && currentChat.id === c.id ? ' active' : '');
       const av = document.createElement('div');
       av.className = 'avatar';
       av.style.backgroundImage = `url("${initialsAvatar(c.username || '?')}")`;
+      const info = document.createElement('div');
+      info.className = 'cinfo';
       const name = document.createElement('span');
       name.className = 'cname';
       name.textContent = c.username || 'Unknown';
+      const email = document.createElement('span');
+      email.className = 'cemail';
+      email.textContent = c.email || '';
+      info.appendChild(name);
+      if (c.email) info.appendChild(email);
       item.appendChild(av);
-      item.appendChild(name);
+      item.appendChild(info);
       item.addEventListener('click', () => selectChat({ type: 'dm', id: c.id, name: c.username || 'Unknown' }));
       contactsList.appendChild(item);
     }
@@ -409,7 +441,13 @@
     loadAndSubscribe();
   }
 
-  menuBtn.addEventListener('click', () => { loadContacts(); contactsOverlay.classList.add('show'); });
+  contactSearch.addEventListener('input', renderContacts);
+  menuBtn.addEventListener('click', () => {
+    contactSearch.value = '';
+    loadContacts();
+    contactsOverlay.classList.add('show');
+    setTimeout(() => contactSearch.focus(), 50);
+  });
   closeContacts.addEventListener('click', () => contactsOverlay.classList.remove('show'));
   contactsOverlay.addEventListener('click', (e) => {
     if (e.target === contactsOverlay) contactsOverlay.classList.remove('show');
@@ -816,6 +854,10 @@
       whoEl.textContent = 'you: ' + myName;
       signOutBtn.style.display = 'inline';
       authOverlay.style.display = 'none';
+      setTimeout(async () => {
+        await ensureProfile();
+        await loadContacts();
+      }, 0);
       loadAndSubscribe();
     } else {
       myId = null; myName = null;
