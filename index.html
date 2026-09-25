@@ -86,6 +86,50 @@
     padding:10px; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; margin-top:4px; }
   #authError { color:var(--danger); font-size:12px; margin:-4px 0 8px; min-height:14px; }
   #authNote { font-size:12px; color:var(--muted); margin-top:10px; }
+
+  .menuBtn { border:none; background:var(--bg); color:var(--text); width:30px; height:30px;
+    border-radius:50%; font-size:14px; cursor:pointer; display:flex; align-items:center;
+    justify-content:center; flex-shrink:0; }
+
+  .media-wrap { position:relative; }
+  .media-wrap img, .media-wrap video { cursor:zoom-in; }
+  .media-wrap video { max-width:220px; max-height:280px; width:100%; border-radius:12px;
+    display:block; background:#000; }
+  .dl-btn { position:absolute; top:6px; right:6px; width:26px; height:26px; border-radius:50%;
+    border:none; background:rgba(0,0,0,0.55); color:#fff; font-size:13px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity .15s; }
+  .media-wrap:hover .dl-btn, .media-wrap:active .dl-btn { opacity:1; }
+  @media (hover:none) { .dl-btn { opacity:1; } }
+
+  #lightbox { position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:20; display:none;
+    align-items:center; justify-content:center; padding:20px;
+    padding-top:max(20px, env(safe-area-inset-top,0px));
+    padding-bottom:max(20px, env(safe-area-inset-bottom,0px)); }
+  #lightbox.show { display:flex; }
+  #lightbox img, #lightbox video { max-width:100%; max-height:100%; border-radius:8px; }
+  #lightbox .lbControls { position:absolute; top:max(16px, env(safe-area-inset-top,0px)); right:16px;
+    display:flex; gap:10px; }
+  #lightbox .lbControls button { border:none; background:rgba(255,255,255,0.15); color:#fff;
+    width:38px; height:38px; border-radius:50%; font-size:16px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; }
+
+  #contactsOverlay { position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:15; display:none; }
+  #contactsOverlay.show { display:block; }
+  #contactsPanel { position:absolute; top:0; left:0; height:100%; width:min(80%, 300px);
+    background:var(--panel); display:flex; flex-direction:column; transform:translateX(-100%);
+    transition:transform .2s ease-out; padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px); }
+  #contactsOverlay.show #contactsPanel { transform:translateX(0); }
+  .panel-header { display:flex; align-items:center; justify-content:space-between; padding:16px;
+    border-bottom:1px solid var(--border); font-weight:600; font-size:15px; flex-shrink:0; }
+  .panel-header button { border:none; background:var(--bg); color:var(--muted); width:28px; height:28px;
+    border-radius:50%; cursor:pointer; font-size:13px; }
+  #contactsList { flex:1; overflow-y:auto; }
+  .contact-item { display:flex; align-items:center; gap:10px; padding:12px 16px; cursor:pointer; }
+  .contact-item:active, .contact-item.active { background:var(--bg); }
+  .contact-item .avatar { width:32px; height:32px; }
+  .contact-item .cname { font-size:14px; }
+  .contact-empty { padding:16px; font-size:13px; color:var(--muted); }
 </style>
 </head>
 <body>
@@ -110,23 +154,44 @@
 </div>
 
 <header>
+  <button class="menuBtn" id="menuBtn" type="button" title="Chats">☰</button>
   <div class="dot"></div>
-  <h1>Group Chat</h1>
+  <h1 id="chatTitle">Group Chat</h1>
   <div class="sub"><span id="who"></span><button id="signOutBtn" style="display:none">Sign out</button></div>
 </header>
+
+<div id="contactsOverlay">
+  <div id="contactsPanel">
+    <div class="panel-header">
+      <span>Chats</span>
+      <button id="closeContacts" type="button">✕</button>
+    </div>
+    <div id="contactsList"><div class="contact-empty">Loading…</div></div>
+  </div>
+</div>
+
 <div id="feed"><div class="empty">Loading…</div></div>
 <div id="banner" style="display:none"></div>
 <form id="composer">
   <div id="imagePreviewRow">
     <img id="imagePreviewThumb" alt="" />
-    <span class="note">Image attached</span>
+    <video id="videoPreviewThumb" muted playsinline style="display:none"></video>
+    <span class="note" id="imagePreviewNote">Image attached</span>
     <button type="button" class="clear" id="clearImageBtn">✕</button>
   </div>
-  <button id="attachBtn" type="button" title="Attach image">📷</button>
-  <input id="fileInput" type="file" accept="image/*" style="display:none" />
+  <button id="attachBtn" type="button" title="Attach photo or video">📎</button>
+  <input id="fileInput" type="file" accept="image/*,video/*" style="display:none" />
   <input id="input" placeholder="Message…" autocomplete="off" maxlength="2000" />
   <button id="send" type="submit">Send</button>
 </form>
+
+<div id="lightbox">
+  <div class="lbControls">
+    <button id="lbDownload" type="button" title="Download">⬇</button>
+    <button id="lbClose" type="button" title="Close">✕</button>
+  </div>
+  <div id="lbContent"></div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
@@ -145,7 +210,20 @@
   const fileInput = document.getElementById('fileInput');
   const imagePreviewRow = document.getElementById('imagePreviewRow');
   const imagePreviewThumb = document.getElementById('imagePreviewThumb');
+  const videoPreviewThumb = document.getElementById('videoPreviewThumb');
+  const imagePreviewNote = document.getElementById('imagePreviewNote');
   const clearImageBtn = document.getElementById('clearImageBtn');
+
+  const menuBtn = document.getElementById('menuBtn');
+  const chatTitle = document.getElementById('chatTitle');
+  const contactsOverlay = document.getElementById('contactsOverlay');
+  const closeContacts = document.getElementById('closeContacts');
+  const contactsList = document.getElementById('contactsList');
+
+  const lightbox = document.getElementById('lightbox');
+  const lbContent = document.getElementById('lbContent');
+  const lbClose = document.getElementById('lbClose');
+  const lbDownload = document.getElementById('lbDownload');
 
   const authOverlay = document.getElementById('authOverlay');
   const tabSignIn = document.getElementById('tabSignIn');
@@ -246,14 +324,166 @@
   let lastSeenAt = null; // created_at of the newest message we've rendered, drives the fallback poll
   const seenIds = new Set(); // db ids already drawn, so realtime + polling never double-render
 
+  // Which conversation is currently open: the shared group chat, or a private 1:1 with one contact.
+  let currentChat = { type: 'group', id: null, name: 'Group Chat' };
+  let contacts = []; // other users available for a private chat, loaded from "profiles"
+
   function makeClientId() {
     return 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
   }
 
-  // --- Image attach ---
+  // --- Private chats: contacts are read from a "profiles" table (id + username per user). ---
+  async function ensureProfile() {
+    if (!myId) return;
+    try {
+      await client.from('profiles').upsert({ id: myId, username: myName }, { onConflict: 'id' });
+    } catch (e) { /* profiles table may not be set up yet; contacts list will explain */ }
+  }
+
+  async function loadContacts() {
+    if (!myId) return;
+    const { data, error } = await client.from('profiles').select('id, username').neq('id', myId).order('username');
+    if (error) {
+      contacts = [];
+      renderContacts();
+      showBanner('Private chats need a "profiles" table in Supabase — see setup notes.');
+      return;
+    }
+    contacts = data || [];
+    renderContacts();
+  }
+
+  function renderContacts() {
+    contactsList.innerHTML = '';
+
+    const groupItem = document.createElement('div');
+    groupItem.className = 'contact-item' + (currentChat.type === 'group' ? ' active' : '');
+    const groupAvatar = document.createElement('div');
+    groupAvatar.className = 'avatar';
+    groupAvatar.style.cssText = 'background:var(--bubble-me);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;';
+    groupAvatar.textContent = '#';
+    const groupName = document.createElement('span');
+    groupName.className = 'cname';
+    groupName.textContent = 'Group Chat';
+    groupItem.appendChild(groupAvatar);
+    groupItem.appendChild(groupName);
+    groupItem.addEventListener('click', () => selectChat({ type: 'group', id: null, name: 'Group Chat' }));
+    contactsList.appendChild(groupItem);
+
+    if (!contacts.length) {
+      const empty = document.createElement('div');
+      empty.className = 'contact-empty';
+      empty.textContent = 'No other users yet.';
+      contactsList.appendChild(empty);
+      return;
+    }
+    for (const c of contacts) {
+      const item = document.createElement('div');
+      item.className = 'contact-item' + (currentChat.type === 'dm' && currentChat.id === c.id ? ' active' : '');
+      const av = document.createElement('div');
+      av.className = 'avatar';
+      av.style.backgroundImage = `url("${initialsAvatar(c.username || '?')}")`;
+      const name = document.createElement('span');
+      name.className = 'cname';
+      name.textContent = c.username || 'Unknown';
+      item.appendChild(av);
+      item.appendChild(name);
+      item.addEventListener('click', () => selectChat({ type: 'dm', id: c.id, name: c.username || 'Unknown' }));
+      contactsList.appendChild(item);
+    }
+  }
+
+  function selectChat(chat) {
+    currentChat = chat;
+    chatTitle.textContent = chat.type === 'group' ? 'Group Chat' : chat.name;
+    contactsOverlay.classList.remove('show');
+    renderContacts();
+    resetAndLoad();
+  }
+
+  function resetAndLoad() {
+    feed.innerHTML = '<div class="empty">Loading…</div>';
+    seenIds.clear();
+    lastSeenAt = null;
+    pendingByText.length = 0;
+    loadAndSubscribe();
+  }
+
+  menuBtn.addEventListener('click', () => { loadContacts(); contactsOverlay.classList.add('show'); });
+  closeContacts.addEventListener('click', () => contactsOverlay.classList.remove('show'));
+  contactsOverlay.addEventListener('click', (e) => {
+    if (e.target === contactsOverlay) contactsOverlay.classList.remove('show');
+  });
+
+  // A message belongs to the group chat when recipient_id is null; otherwise it belongs to the
+  // private chat between its uid and its recipient_id.
+  function applyChatFilter(q) {
+    if (currentChat.type === 'group') return q.is('recipient_id', null);
+    return q.or(`and(uid.eq.${myId},recipient_id.eq.${currentChat.id}),and(uid.eq.${currentChat.id},recipient_id.eq.${myId})`);
+  }
+
+  function belongsToCurrentChat(m) {
+    if (currentChat.type === 'group') return m.recipient_id == null;
+    return (m.uid === myId && m.recipient_id === currentChat.id) || (m.uid === currentChat.id && m.recipient_id === myId);
+  }
+
+  // --- Lightbox: full-size view + download for any photo or video in the feed ---
+  function openLightbox(url, type) {
+    if (!url) return;
+    lbContent.innerHTML = '';
+    let el;
+    if (type === 'video') {
+      el = document.createElement('video');
+      el.src = url;
+      el.controls = true;
+      el.autoplay = true;
+      el.playsInline = true;
+    } else {
+      el = document.createElement('img');
+      el.src = url;
+      el.alt = 'image';
+    }
+    lbContent.appendChild(el);
+    lbContent.dataset.url = url;
+    lbContent.dataset.type = type;
+    lightbox.classList.add('show');
+  }
+
+  function closeLightbox() {
+    lightbox.classList.remove('show');
+    lbContent.innerHTML = '';
+  }
+
+  lbClose.addEventListener('click', closeLightbox);
+  lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
+  lbDownload.addEventListener('click', () => downloadMedia(lbContent.dataset.url, lbContent.dataset.type));
+
+  async function downloadMedia(url, type) {
+    if (!url) return;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const ext = (url.split('.').pop() || '').split('?')[0];
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl;
+      a.download = `${type || 'file'}_${Date.now()}${ext ? '.' + ext : ''}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objUrl);
+    } catch (err) {
+      showBanner('Could not download: ' + (err.message || 'unknown error'));
+    }
+  }
+
+  // --- Media attach: a photo or a video ---
   const MAX_IMAGE_MB = 8;
-  let pendingImageFile = null;
-  let pendingImagePreviewUrl = null;
+  const MAX_VIDEO_MB = 50; // Supabase's default free-tier per-file storage limit is 50MB
+  let pendingMediaFile = null;
+  let pendingMediaType = null; // 'image' | 'video'
+  let pendingMediaPreviewUrl = null;
 
   attachBtn.addEventListener('click', () => fileInput.click());
 
@@ -261,34 +491,50 @@
     const file = fileInput.files && fileInput.files[0];
     fileInput.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      showBanner('Please choose an image file.');
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    if (!isImage && !isVideo) {
+      showBanner('Please choose an image or video file.');
       return;
     }
-    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
-      showBanner(`Image is too large (max ${MAX_IMAGE_MB}MB).`);
+    const limitMb = isImage ? MAX_IMAGE_MB : MAX_VIDEO_MB;
+    if (file.size > limitMb * 1024 * 1024) {
+      showBanner(`${isImage ? 'Image' : 'Video'} is too large (max ${limitMb}MB).`);
       return;
     }
-    setPendingImage(file);
+    setPendingMedia(file, isImage ? 'image' : 'video');
   });
 
-  function setPendingImage(file) {
-    clearPendingImage();
-    pendingImageFile = file;
-    pendingImagePreviewUrl = URL.createObjectURL(file);
-    imagePreviewThumb.src = pendingImagePreviewUrl;
+  function setPendingMedia(file, type) {
+    clearPendingMedia();
+    pendingMediaFile = file;
+    pendingMediaType = type;
+    pendingMediaPreviewUrl = URL.createObjectURL(file);
+    if (type === 'image') {
+      imagePreviewThumb.src = pendingMediaPreviewUrl;
+      imagePreviewThumb.style.display = 'block';
+      videoPreviewThumb.style.display = 'none';
+      imagePreviewNote.textContent = 'Image attached';
+    } else {
+      videoPreviewThumb.src = pendingMediaPreviewUrl;
+      videoPreviewThumb.style.display = 'block';
+      imagePreviewThumb.style.display = 'none';
+      imagePreviewNote.textContent = 'Video attached';
+    }
     imagePreviewRow.classList.add('show');
   }
 
-  function clearPendingImage() {
-    if (pendingImagePreviewUrl) URL.revokeObjectURL(pendingImagePreviewUrl);
-    pendingImageFile = null;
-    pendingImagePreviewUrl = null;
+  function clearPendingMedia() {
+    if (pendingMediaPreviewUrl) URL.revokeObjectURL(pendingMediaPreviewUrl);
+    pendingMediaFile = null;
+    pendingMediaType = null;
+    pendingMediaPreviewUrl = null;
     imagePreviewThumb.src = '';
+    videoPreviewThumb.src = '';
     imagePreviewRow.classList.remove('show');
   }
 
-  clearImageBtn.addEventListener('click', clearPendingImage);
+  clearImageBtn.addEventListener('click', clearPendingMedia);
 
   function renderAll(rows) {
     feed.innerHTML = '';
@@ -323,13 +569,43 @@
     }
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    if (m.image_url) {
+    if (m.image_url || m.video_url) {
       bubble.classList.add('has-img');
-      const img = document.createElement('img');
-      img.src = m.image_url;
-      img.alt = 'image';
-      img.loading = 'lazy';
-      bubble.appendChild(img);
+      const isVideo = !!m.video_url;
+      const url = m.video_url || m.image_url;
+
+      const mediaWrap = document.createElement('div');
+      mediaWrap.className = 'media-wrap';
+
+      let mediaEl;
+      if (isVideo) {
+        mediaEl = document.createElement('video');
+        mediaEl.src = url;
+        mediaEl.muted = true;
+        mediaEl.playsInline = true;
+        mediaEl.preload = 'metadata';
+      } else {
+        mediaEl = document.createElement('img');
+        mediaEl.src = url;
+        mediaEl.alt = 'image';
+        mediaEl.loading = 'lazy';
+      }
+      mediaEl.addEventListener('click', () => openLightbox(url, isVideo ? 'video' : 'image'));
+
+      const dlBtn = document.createElement('button');
+      dlBtn.type = 'button';
+      dlBtn.className = 'dl-btn';
+      dlBtn.title = 'Download';
+      dlBtn.textContent = '⬇';
+      dlBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        downloadMedia(url, isVideo ? 'video' : 'image');
+      });
+
+      mediaWrap.appendChild(mediaEl);
+      mediaWrap.appendChild(dlBtn);
+      bubble.appendChild(mediaWrap);
+
       if (m.text) {
         const cap = document.createElement('div');
         cap.className = 'caption';
@@ -351,6 +627,7 @@
   }
 
   function drawIncoming(m) {
+    if (!belongsToCurrentChat(m)) return;
     if (m.id != null && seenIds.has(m.id)) return; // already on screen, via realtime or poll
     if (m.uid === myId) {
       const idx = pendingByText.findIndex(p => p.text === m.text && p.hasImage === !!m.image_url);
@@ -371,6 +648,7 @@
   async function pollForMissed() {
     if (!myId) return;
     let q = client.from('messages').select('*').order('created_at', { ascending: true }).limit(50);
+    q = applyChatFilter(q);
     q = lastSeenAt ? q.gt('created_at', lastSeenAt) : q.limit(200);
     const { data, error } = await q;
     if (!error && data) data.forEach(drawIncoming);
