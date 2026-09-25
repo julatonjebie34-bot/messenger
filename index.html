@@ -218,6 +218,7 @@
     <div id="callAvatar"></div>
     <div id="callTitle">Incoming call</div>
     <div id="callStatus">Voice call</div>
+    <div id="callTimer" style="display:none;font-size:24px;font-weight:700;margin-top:8px;">00:00</div>
     <div class="callActions">
       <button id="acceptCallBtn" type="button" title="Accept">📞</button>
       <button id="declineCallBtn" type="button" title="Decline">✕</button>
@@ -262,6 +263,7 @@
   const callAvatar = document.getElementById('callAvatar');
   const callTitle = document.getElementById('callTitle');
   const callStatus = document.getElementById('callStatus');
+  const callTimer = document.getElementById('callTimer');
   const acceptCallBtn = document.getElementById('acceptCallBtn');
   const declineCallBtn = document.getElementById('declineCallBtn');
   const hangupCallBtn = document.getElementById('hangupCallBtn');
@@ -389,6 +391,10 @@
   let activeCallPeer = null;
   let pendingIce = [];
   let incomingOffer = null;
+  let callStartedAt = null;
+  let callTimerInterval = null;
+  let speakerOn = false;
+  let callEnding = false;
   const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
   let contacts = []; // other users available for a private chat, loaded from "profiles"
   const unreadCounts = {};
@@ -912,22 +918,55 @@
     voiceBtn.disabled = !enabled;
   }
 
+  function startCallTimer(startedAt) {
+    callStartedAt = Number(startedAt) || Date.now();
+    callTimer.style.display = 'block';
+    const tick = () => {
+      const seconds = Math.max(0, Math.floor((Date.now() - callStartedAt) / 1000));
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const sec = seconds % 60;
+      callTimer.textContent = h
+        ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
+        : `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    };
+    clearInterval(callTimerInterval);
+    tick();
+    callTimerInterval = setInterval(tick, 1000);
+  }
+
+  function stopCallTimer() {
+    clearInterval(callTimerInterval);
+    callTimerInterval = null;
+    callStartedAt = null;
+    callTimer.style.display = 'none';
+    callTimer.textContent = '00:00';
+  }
+
   function showCallUI(name, status, incoming=false) {
     callAvatar.style.backgroundImage=`url("${initialsAvatar(name || '?')}")`;
     callTitle.textContent = name || 'Voice call';
     callStatus.textContent = status;
     acceptCallBtn.style.display = incoming ? 'block' : 'none';
-    declineCallBtn.style.display = incoming ? 'block' : 'none';
+    declineCallBtn.style.display = 'block';
     hangupCallBtn.style.display = incoming ? 'none' : 'block';
     speakerCallBtn.style.display = incoming ? 'none' : 'block';
     callOverlay.classList.add('show');
   }
+
   function hideCallUI(){
     callOverlay.classList.remove('show');
+    stopCallTimer();
     speakerOn=false;
     speakerCallBtn.classList.remove('on');
     speakerCallBtn.textContent='🔊';
     speakerCallBtn.title='Speaker';
+  }
+
+  function markCallConnected(startedAt) {
+    callStatus.textContent = 'Connected';
+    startCallTimer(startedAt || Date.now());
+    speakerCallBtn.style.display = 'block';
   }
 
   async function sendSignal(to, type, payload, callId) {
@@ -1026,7 +1065,14 @@
   }
 
   async function handleCallSignal(sig){
-    if(sig.type==='hangup'){ endCall(false); return; }
+    if(sig.type==='hangup'){
+      endCall(false);
+      return;
+    }
+    if(sig.type==='connected'){
+      if(sig.call_id === activeCallId) markCallConnected(sig.payload?.startedAt || Date.now());
+      return;
+    }
     if(!peerConnection){
       if(sig.type==='candidate') pendingIce.push(sig.payload);
       return;
@@ -1089,7 +1135,10 @@
         sdp:answer.sdp
       },activeCallId);
 
+      const connectedAt = Date.now();
+      await sendSignal(activeCallPeer,'connected',{startedAt:connectedAt},activeCallId);
       showCallUI(currentChat.name,'Connected',false);
+      markCallConnected(connectedAt);
       speakerOn=true;
       speakerCallBtn.classList.add('on');
       speakerCallBtn.textContent='🔊';
@@ -1101,6 +1150,8 @@
     }
   }
   async function endCall(sendHangup=true){
+    if(callEnding) return;
+    callEnding = true;
     const peer=activeCallPeer, cid=activeCallId;
     if(sendHangup && peer && cid) { try{await sendSignal(peer,'hangup',{},cid)}catch(e){} }
     if(localStream) localStream.getTracks().forEach(t=>t.stop());
@@ -1117,10 +1168,21 @@
     remoteAudio.srcObject=null;
     hideCallUI();
     updateCallButtons();
+    setTimeout(()=>{ callEnding=false; }, 0);
   }
   callBtn.addEventListener('click',startCall);
   acceptCallBtn.addEventListener('click',acceptCall);
-  declineCallBtn.addEventListener('click',()=>endCall(true));
+  declineCallBtn.addEventListener('click', async ()=>{
+    if (incomingOffer && incomingOffer.sender_id && incomingOffer.call_id) {
+      const peer = incomingOffer.sender_id;
+      const cid = incomingOffer.call_id;
+      incomingOffer = null;
+      try { await sendSignal(peer,'hangup',{},cid); } catch(e) {}
+      endCall(false);
+    } else {
+      endCall(true);
+    }
+  });
   hangupCallBtn.addEventListener('click',()=>endCall(true));
   speakerCallBtn.addEventListener('click',toggleSpeaker);
 
