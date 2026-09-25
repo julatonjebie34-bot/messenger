@@ -83,6 +83,9 @@
   .callActions button { border:none; border-radius:50%; width:50px; height:50px; font-size:20px; cursor:pointer; }
   #acceptCallBtn { background:#34c759; color:#fff; }
   #declineCallBtn, #hangupCallBtn { background:#e53935; color:#fff; }
+  #speakerCallBtn { background:#555; color:#fff; display:none; }
+  #speakerCallBtn.on { background:#007aff; }
+  #speakerCallBtn:disabled { opacity:.5; }
   #banner { padding:10px 16px; font-size:13px; color:var(--muted); text-align:center; }
 
   #authOverlay { position:fixed; inset:0; background:rgba(0,0,0,0.4); display:flex;
@@ -219,6 +222,7 @@
       <button id="acceptCallBtn" type="button" title="Accept">📞</button>
       <button id="declineCallBtn" type="button" title="Decline">✕</button>
       <button id="hangupCallBtn" type="button" title="Hang up" style="display:none">📵</button>
+      <button id="speakerCallBtn" type="button" title="Speaker" style="display:none">🔊</button>
     </div>
   </div>
 </div>
@@ -915,9 +919,16 @@
     acceptCallBtn.style.display = incoming ? 'block' : 'none';
     declineCallBtn.style.display = incoming ? 'block' : 'none';
     hangupCallBtn.style.display = incoming ? 'none' : 'block';
+    speakerCallBtn.style.display = incoming ? 'none' : 'block';
     callOverlay.classList.add('show');
   }
-  function hideCallUI(){ callOverlay.classList.remove('show'); }
+  function hideCallUI(){
+    callOverlay.classList.remove('show');
+    speakerOn=false;
+    speakerCallBtn.classList.remove('on');
+    speakerCallBtn.textContent='🔊';
+    speakerCallBtn.title='Speaker';
+  }
 
   async function sendSignal(to, type, payload, callId) {
     await client.from('call_signals').insert({ sender_id:myId, recipient_id:to, type, call_id:callId, payload });
@@ -934,45 +945,99 @@
     }).subscribe();
   }
 
+  async function setupCallAudio(stream){
+    remoteAudio.autoplay=true;
+    remoteAudio.playsInline=true;
+    remoteAudio.muted=false;
+    remoteAudio.volume=1;
+    remoteAudio.srcObject=stream;
+
+    // Resume Web Audio from the call's user interaction when possible.
+    try {
+      if(!callAudioContext) callAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+      if(callAudioContext.state === 'suspended') await callAudioContext.resume();
+      if(callAudioSource) { try { callAudioSource.disconnect(); } catch(e){} }
+      callAudioSource = callAudioContext.createMediaStreamSource(stream);
+      const gain = callAudioContext.createGain();
+      gain.gain.value = 1.35;
+      callAudioSource.connect(gain);
+      gain.connect(callAudioContext.destination);
+      callAudioStream=stream;
+    } catch(e) {
+      // The normal <audio> element remains the fallback.
+    }
+    try { await remoteAudio.play(); } catch(e) {
+      setTimeout(()=>remoteAudio.play().catch(()=>{}),150);
+    }
+  }
+
+  async function toggleSpeaker(){
+    if(!remoteAudio.srcObject) return;
+    speakerOn=!speakerOn;
+    speakerCallBtn.classList.toggle('on',speakerOn);
+    speakerCallBtn.textContent=speakerOn?'🔊':'🔈';
+    speakerCallBtn.title=speakerOn?'Speaker on':'Speaker off';
+
+    // setSinkId is supported by some desktop browsers. "default" asks
+    // the browser to use its normal/default loudspeaker output.
+    if(typeof remoteAudio.setSinkId === 'function'){
+      try { await remoteAudio.setSinkId('default'); } catch(e) {}
+    }
+    remoteAudio.volume = speakerOn ? 1 : 0.85;
+
+    if(callAudioContext && callAudioContext.state==='suspended'){
+      try { await callAudioContext.resume(); } catch(e){}
+    }
+    try { await remoteAudio.play(); } catch(e){}
+  }
+
   async function createPeer(peerId, initiator) {
-    if (peerConnection) peerConnection.close();
-    localStream=await navigator.mediaDevices.getUserMedia({audio:true});
+    if (peerConnection) { try{peerConnection.close();}catch(e){} }
+    pendingIce=[];
+    localStream=await navigator.mediaDevices.getUserMedia({
+      audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}
+    });
     peerConnection=new RTCPeerConnection(rtcConfig);
     localStream.getTracks().forEach(t=>peerConnection.addTrack(t,localStream));
+
     peerConnection.ontrack = async (e) => {
-      // Attach the incoming microphone stream to a real audio element.
-      // Keep it unmuted and explicitly start playback when the remote track arrives.
-      if (e.streams && e.streams[0]) remoteAudio.srcObject = e.streams[0];
-      else {
-        const stream = remoteAudio.srcObject instanceof MediaStream ? remoteAudio.srcObject : new MediaStream();
-        stream.addTrack(e.track);
-        remoteAudio.srcObject = stream;
-      }
-      remoteAudio.autoplay = true;
-      remoteAudio.muted = false;
-      remoteAudio.volume = 1;
-      try { await remoteAudio.play(); } catch (err) {
-        // The Accept button is a user gesture, but some browsers still delay playback.
-        setTimeout(() => remoteAudio.play().catch(()=>{}), 100);
+      const stream = (e.streams && e.streams[0]) ? e.streams[0] :
+        (remoteAudio.srcObject instanceof MediaStream ? remoteAudio.srcObject : new MediaStream());
+      if(!e.streams || !e.streams[0]) stream.addTrack(e.track);
+      await setupCallAudio(stream);
+    };
+
+    peerConnection.onicecandidate=e=>{
+      if(e.candidate && activeCallId)
+        sendSignal(peerId,'candidate',e.candidate.toJSON(),activeCallId).catch(()=>{});
+    };
+    peerConnection.onconnectionstatechange=()=>{
+      if(peerConnection && ['failed','disconnected','closed'].includes(peerConnection.connectionState)){
+        if(peerConnection.connectionState==='failed') showBanner('Call connection failed. Please try again.');
+        endCall(false);
       }
     };
-    peerConnection.onicecandidate=e=>{ if(e.candidate && activeCallId) sendSignal(peerId,'candidate',e.candidate.toJSON(),activeCallId); };
-    peerConnection.onconnectionstatechange=()=>{ if(['failed','disconnected','closed'].includes(peerConnection.connectionState)) endCall(false); };
-    if(initiator){ const offer=await peerConnection.createOffer(); await peerConnection.setLocalDescription(offer); await sendSignal(peerId,'offer',{sdp:offer.sdp,name:myName},activeCallId); }
+
+    if(initiator){
+      const offer=await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      await sendSignal(peerId,'offer',{sdp:offer.sdp,name:myName},activeCallId);
+    }
   }
 
   async function handleCallSignal(sig){
     if(sig.type==='hangup'){ endCall(false); return; }
-    if(!peerConnection) return;
+    if(!peerConnection){
+      if(sig.type==='candidate') pendingIce.push(sig.payload);
+      return;
+    }
     if(sig.type==='answer'){
       await peerConnection.setRemoteDescription(sig.payload);
       while(pendingIce.length){
         try { await peerConnection.addIceCandidate(pendingIce.shift()); } catch(e) {}
       }
-    }
-    else if(sig.type==='candidate'){
-      // ICE candidates can arrive before the remote offer/answer is installed.
-      if (!peerConnection.remoteDescription) {
+    } else if(sig.type==='candidate'){
+      if(!peerConnection.remoteDescription){
         pendingIce.push(sig.payload);
       } else {
         try { await peerConnection.addIceCandidate(sig.payload); } catch(e) {}
@@ -989,32 +1054,75 @@
   }
   async function acceptCall(){
     if(!incomingOffer) return;
-    // Prime remote audio during the Accept button's user gesture.
-    remoteAudio.muted = false;
-    remoteAudio.volume = 1;
-    try { await remoteAudio.play(); } catch(e) {}
-    const sig=incomingOffer; incomingOffer=null;
+
+    const sig=incomingOffer;
+    incomingOffer=null;
     currentChat={type:'dm',id:sig.sender_id,name:sig.payload?.name||'Someone'};
-    chatTitle.textContent=currentChat.name; activeCallId=sig.call_id; activeCallPeer=sig.sender_id;
+    chatTitle.textContent=currentChat.name;
+    activeCallId=sig.call_id;
+    activeCallPeer=sig.sender_id;
+
+    // Accept is a real user gesture: unlock microphone + audio output now.
+    try {
+      if(!callAudioContext) callAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+      if(callAudioContext.state==='suspended') await callAudioContext.resume();
+    } catch(e){}
+
+    showCallUI(currentChat.name,'Connecting…',false);
     try {
       await createPeer(activeCallPeer,false);
-      await peerConnection.setRemoteDescription({type:'offer',sdp:sig.payload.sdp});
-      while(pendingIce.length){ try{await peerConnection.addIceCandidate(pendingIce.shift())}catch(e){} }
-      const answer=await peerConnection.createAnswer(); await peerConnection.setLocalDescription(answer);
-      await sendSignal(activeCallPeer,'answer',{type:'answer',sdp:answer.sdp},activeCallId);
+
+      await peerConnection.setRemoteDescription({
+        type:'offer',
+        sdp:sig.payload.sdp
+      });
+
+      while(pendingIce.length){
+        try { await peerConnection.addIceCandidate(pendingIce.shift()); } catch(e){}
+      }
+
+      const answer=await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+
+      await sendSignal(activeCallPeer,'answer',{
+        type:'answer',
+        sdp:answer.sdp
+      },activeCallId);
+
       showCallUI(currentChat.name,'Connected',false);
-    } catch(e){ showBanner('Could not accept call.'); endCall(false); }
+      speakerOn=true;
+      speakerCallBtn.classList.add('on');
+      speakerCallBtn.textContent='🔊';
+      try { await remoteAudio.play(); } catch(e){}
+    } catch(e){
+      console.error('Accept call error:',e);
+      showBanner('Could not accept call. Allow microphone permission and try again.');
+      endCall(false);
+    }
   }
   async function endCall(sendHangup=true){
     const peer=activeCallPeer, cid=activeCallId;
     if(sendHangup && peer && cid) { try{await sendSignal(peer,'hangup',{},cid)}catch(e){} }
     if(localStream) localStream.getTracks().forEach(t=>t.stop());
-    localStream=null; if(peerConnection) peerConnection.close(); peerConnection=null; activeCallPeer=null; activeCallId=null; incomingOffer=null; pendingIce=[]; remoteAudio.srcObject=null; hideCallUI(); updateCallButtons();
+    localStream=null;
+    if(peerConnection) peerConnection.close();
+    peerConnection=null;
+    activeCallPeer=null;
+    activeCallId=null;
+    incomingOffer=null;
+    pendingIce=[];
+    if(callAudioSource){ try{callAudioSource.disconnect();}catch(e){} callAudioSource=null; }
+    if(callAudioContext){ try{callAudioContext.close();}catch(e){} callAudioContext=null; }
+    callAudioStream=null;
+    remoteAudio.srcObject=null;
+    hideCallUI();
+    updateCallButtons();
   }
   callBtn.addEventListener('click',startCall);
   acceptCallBtn.addEventListener('click',acceptCall);
   declineCallBtn.addEventListener('click',()=>endCall(true));
   hangupCallBtn.addEventListener('click',()=>endCall(true));
+  speakerCallBtn.addEventListener('click',toggleSpeaker);
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
