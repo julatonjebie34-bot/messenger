@@ -222,7 +222,7 @@
     </div>
   </div>
 </div>
-<audio id="remoteAudio" autoplay></audio>
+<audio id="remoteAudio" autoplay playsinline></audio>
 
 <div id="lightbox">
   <div class="lbControls">
@@ -939,7 +939,23 @@
     localStream=await navigator.mediaDevices.getUserMedia({audio:true});
     peerConnection=new RTCPeerConnection(rtcConfig);
     localStream.getTracks().forEach(t=>peerConnection.addTrack(t,localStream));
-    peerConnection.ontrack=e=>{ remoteAudio.srcObject=e.streams[0]; remoteAudio.play().catch(()=>{}); };
+    peerConnection.ontrack = async (e) => {
+      // Attach the incoming microphone stream to a real audio element.
+      // Keep it unmuted and explicitly start playback when the remote track arrives.
+      if (e.streams && e.streams[0]) remoteAudio.srcObject = e.streams[0];
+      else {
+        const stream = remoteAudio.srcObject instanceof MediaStream ? remoteAudio.srcObject : new MediaStream();
+        stream.addTrack(e.track);
+        remoteAudio.srcObject = stream;
+      }
+      remoteAudio.autoplay = true;
+      remoteAudio.muted = false;
+      remoteAudio.volume = 1;
+      try { await remoteAudio.play(); } catch (err) {
+        // The Accept button is a user gesture, but some browsers still delay playback.
+        setTimeout(() => remoteAudio.play().catch(()=>{}), 100);
+      }
+    };
     peerConnection.onicecandidate=e=>{ if(e.candidate && activeCallId) sendSignal(peerId,'candidate',e.candidate.toJSON(),activeCallId); };
     peerConnection.onconnectionstatechange=()=>{ if(['failed','disconnected','closed'].includes(peerConnection.connectionState)) endCall(false); };
     if(initiator){ const offer=await peerConnection.createOffer(); await peerConnection.setLocalDescription(offer); await sendSignal(peerId,'offer',{sdp:offer.sdp,name:myName},activeCallId); }
@@ -948,8 +964,20 @@
   async function handleCallSignal(sig){
     if(sig.type==='hangup'){ endCall(false); return; }
     if(!peerConnection) return;
-    if(sig.type==='answer'){ await peerConnection.setRemoteDescription(sig.payload); }
-    else if(sig.type==='candidate'){ try{ await peerConnection.addIceCandidate(sig.payload); }catch(e){} }
+    if(sig.type==='answer'){
+      await peerConnection.setRemoteDescription(sig.payload);
+      while(pendingIce.length){
+        try { await peerConnection.addIceCandidate(pendingIce.shift()); } catch(e) {}
+      }
+    }
+    else if(sig.type==='candidate'){
+      // ICE candidates can arrive before the remote offer/answer is installed.
+      if (!peerConnection.remoteDescription) {
+        pendingIce.push(sig.payload);
+      } else {
+        try { await peerConnection.addIceCandidate(sig.payload); } catch(e) {}
+      }
+    }
   }
 
   async function startCall(){
@@ -961,6 +989,10 @@
   }
   async function acceptCall(){
     if(!incomingOffer) return;
+    // Prime remote audio during the Accept button's user gesture.
+    remoteAudio.muted = false;
+    remoteAudio.volume = 1;
+    try { await remoteAudio.play(); } catch(e) {}
     const sig=incomingOffer; incomingOffer=null;
     currentChat={type:'dm',id:sig.sender_id,name:sig.payload?.name||'Someone'};
     chatTitle.textContent=currentChat.name; activeCallId=sig.call_id; activeCallPeer=sig.sender_id;
