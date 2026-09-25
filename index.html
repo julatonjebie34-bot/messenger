@@ -91,9 +91,8 @@
 <script>
 (function () {
   // ---- 1. FILL THESE IN from your Supabase project settings (Project Settings > API) ----
-  const SUPABASE_URL = "https://dfcnmjniwokighkvgvgr.supabase.co";
-  const SUPABASE_ANON_KEY = "sb_publishable_pthoiqHMiKLJiTrJhJx5uw_B0sY0q2h";
-
+  const SUPABASE_URL = "https://wwcmntdvuecbuydhqsqo.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_nFxiub_VpITzHtdiiTaAWw_sa9-qVif";
   // ----------------------------------------------------------------------------------------
 
   const feed = document.getElementById('feed');
@@ -191,8 +190,15 @@
   }
 
   async function init() {
-    if (!window.supabase || SUPABASE_URL.startsWith('YOUR_')) {
+    if (!window.supabase) {
+      showBanner('Supabase library failed to load (check your internet connection or ad blocker).');
+      feed.innerHTML = '<div class="empty">Chat unavailable.</div>';
+      sendBtn.disabled = true;
+      return;
+    }
+    if (SUPABASE_URL.startsWith('YOUR_') || SUPABASE_ANON_KEY.startsWith('YOUR_')) {
       showBanner('Add your Supabase URL and anon key at the top of the script to enable chat.');
+      feed.innerHTML = '<div class="empty">Chat unavailable.</div>';
       sendBtn.disabled = true;
       return;
     }
@@ -206,6 +212,7 @@
 
     if (error) {
       showBanner('Could not load messages: ' + error.message);
+      feed.innerHTML = '<div class="empty">Couldn\'t load chat. See message below.</div>';
     } else {
       renderAll(data || []);
     }
