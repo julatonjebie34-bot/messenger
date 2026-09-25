@@ -133,6 +133,10 @@
   .contact-item:active, .contact-item.active { background:var(--bg); }
   .contact-item .avatar { width:32px; height:32px; }
   .contact-item .cname { font-size:14px; }
+  .contact-item { position:relative; }
+  .unread-badge { margin-left:auto; min-width:20px; height:20px; padding:0 6px; border-radius:10px; background:#e53935; color:#fff; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .menuBtn { position:relative; }
+  .menu-unread-badge { position:absolute; top:-5px; right:-5px; min-width:17px; height:17px; padding:0 4px; border-radius:9px; background:#e53935; color:#fff; font-size:10px; font-weight:700; display:none; align-items:center; justify-content:center; border:2px solid var(--panel); }
   .contact-empty { padding:16px; font-size:13px; color:var(--muted); }
 </style>
 </head>
@@ -158,7 +162,7 @@
 </div>
 
 <header>
-  <button class="menuBtn" id="menuBtn" type="button" title="Chats">☰</button>
+  <button class="menuBtn" id="menuBtn" type="button" title="Chats">☰<span id="menuUnreadBadge" class="menu-unread-badge"></span></button>
   <div class="dot"></div>
   <h1 id="chatTitle">Group Chat</h1>
   <div class="sub"><span id="who"></span><button id="signOutBtn" style="display:none">Sign out</button></div>
@@ -333,6 +337,52 @@
   // Which conversation is currently open: the shared group chat, or a private 1:1 with one contact.
   let currentChat = { type: 'group', id: null, name: 'Group Chat' };
   let contacts = []; // other users available for a private chat, loaded from "profiles"
+  const unreadCounts = {};
+  const menuUnreadBadge = document.getElementById('menuUnreadBadge');
+
+  function readKey(contactId) { return 'chat_read_' + myId + '_' + contactId; }
+
+  function getReadAt(contactId) {
+    try { return localStorage.getItem(readKey(contactId)) || ''; } catch (_) { return ''; }
+  }
+
+  function markChatRead(contactId) {
+    if (!myId || !contactId) return;
+    try { localStorage.setItem(readKey(contactId), new Date().toISOString()); } catch (_) {}
+    unreadCounts[contactId] = 0;
+    updateMenuUnreadBadge();
+    renderContacts();
+  }
+
+  function updateMenuUnreadBadge() {
+    const total = Object.values(unreadCounts).reduce((a, b) => a + (Number(b) || 0), 0);
+    if (!menuUnreadBadge) return;
+    if (total > 0) {
+      menuUnreadBadge.textContent = total > 99 ? '99+' : String(total);
+      menuUnreadBadge.style.display = 'flex';
+    } else {
+      menuUnreadBadge.style.display = 'none';
+    }
+  }
+
+  async function loadUnreadCounts() {
+    if (!myId) return;
+    const { data, error } = await client.from('messages')
+      .select('uid, created_at')
+      .eq('recipient_id', myId)
+      .order('created_at', { ascending: true })
+      .limit(1000);
+    if (error || !data) return;
+    for (const key of Object.keys(unreadCounts)) delete unreadCounts[key];
+    for (const m of data) {
+      const readAt = getReadAt(m.uid);
+      if (!readAt || (m.created_at && m.created_at > readAt)) {
+        unreadCounts[m.uid] = (unreadCounts[m.uid] || 0) + 1;
+      }
+    }
+    updateMenuUnreadBadge();
+    renderContacts();
+  }
 
   function makeClientId() {
     return 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
@@ -361,6 +411,7 @@
       return;
     }
     contacts = data || [];
+    await loadUnreadCounts();
     renderContacts();
   }
 
@@ -420,6 +471,13 @@
       if (c.email) info.appendChild(email);
       item.appendChild(av);
       item.appendChild(info);
+      const unread = Number(unreadCounts[c.id] || 0);
+      if (unread > 0 && !(currentChat.type === 'dm' && currentChat.id === c.id)) {
+        const badge = document.createElement('span');
+        badge.className = 'unread-badge';
+        badge.textContent = unread > 99 ? '99+' : String(unread);
+        item.appendChild(badge);
+      }
       item.addEventListener('click', () => selectChat({ type: 'dm', id: c.id, name: c.username || 'Unknown' }));
       contactsList.appendChild(item);
     }
@@ -427,6 +485,7 @@
 
   function selectChat(chat) {
     currentChat = chat;
+    if (chat.type === 'dm') markChatRead(chat.id);
     chatTitle.textContent = chat.type === 'group' ? 'Group Chat' : chat.name;
     contactsOverlay.classList.remove('show');
     renderContacts();
