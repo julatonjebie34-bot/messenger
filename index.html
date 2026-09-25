@@ -30,8 +30,11 @@
   header h1 { font-size:16px; margin:0; font-weight:600; }
   header .sub { font-size:12px; color:var(--muted); margin-left:auto; display:flex; align-items:center; gap:8px; }
   #signOutBtn { border:none; background:transparent; color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; padding:0; }
-  #feed { flex:1; overflow-y:auto; padding:14px 12px; display:flex; flex-direction:column; gap:10px; }
+  #feed { flex:1; overflow-y:auto; padding:14px 12px; display:flex; flex-direction:column; gap:10px;
+    scroll-behavior: smooth; }
   .row { display:flex; gap:8px; max-width:80%; align-items:flex-end; }
+  .row.enter { animation: rowIn .22s ease-out; }
+  @keyframes rowIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
   .row.me { align-self:flex-end; flex-direction:row-reverse; }
   .row.other { align-self:flex-start; }
   .avatar { width:26px; height:26px; border-radius:50%; flex-shrink:0; background-size:cover; background-position:center; }
@@ -211,8 +214,10 @@
 
   let myId = null;
   let myName = null;
-  let subscribed = false;
-  const pendingIds = new Set(); // client-generated ids for messages we've already rendered optimistically
+  let channel = null;
+  let pollTimer = null;
+  let lastSeenAt = null; // created_at of the newest message we've rendered, drives the fallback poll
+  const seenIds = new Set(); // db ids already drawn, so realtime + polling never double-render
 
   function makeClientId() {
     return 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
@@ -224,15 +229,17 @@
       feed.innerHTML = '<div class="empty">No messages yet. Say hello 👋</div>';
       return;
     }
+    feed.style.scrollBehavior = 'auto'; // jump straight to bottom on first load, no animation
     for (const m of rows) addRow(m, false);
     feed.scrollTop = feed.scrollHeight;
+    requestAnimationFrame(() => { feed.style.scrollBehavior = 'smooth'; });
   }
 
   function addRow(m, scroll) {
     if (feed.querySelector('.empty')) feed.innerHTML = '';
     const isMe = m.uid === myId;
     const row = document.createElement('div');
-    row.className = 'row ' + (isMe ? 'me' : 'other');
+    row.className = 'row ' + (isMe ? 'me' : 'other') + (scroll !== false ? ' enter' : '');
     if (m._tempId) row.dataset.tempId = m._tempId;
 
     const avatar = document.createElement('div');
@@ -256,6 +263,51 @@
     row.appendChild(wrap);
     feed.appendChild(row);
     if (scroll !== false) feed.scrollTop = feed.scrollHeight;
+
+    if (m.id != null) seenIds.add(m.id);
+    if (m.created_at && (!lastSeenAt || m.created_at > lastSeenAt)) lastSeenAt = m.created_at;
+  }
+
+  function drawIncoming(m) {
+    if (m.id != null && seenIds.has(m.id)) return; // already on screen, via realtime or poll
+    if (m.uid === myId) {
+      const idx = pendingByText.findIndex(p => p.text === m.text);
+      if (idx !== -1) {
+        // Already drawn optimistically when we sent it, this is just the server echo.
+        pendingByText.splice(idx, 1);
+        if (m.id != null) seenIds.add(m.id);
+        if (m.created_at && (!lastSeenAt || m.created_at > lastSeenAt)) lastSeenAt = m.created_at;
+        return;
+      }
+    }
+    addRow(m, true);
+  }
+
+  // Quiet safety net: if the realtime socket ever drops without us noticing (backgrounded tab,
+  // flaky mobile network), this catches anything we missed. Cheap, since it only asks for
+  // messages newer than the last one we've already drawn.
+  async function pollForMissed() {
+    if (!myId) return;
+    let q = client.from('messages').select('*').order('created_at', { ascending: true }).limit(50);
+    q = lastSeenAt ? q.gt('created_at', lastSeenAt) : q.limit(200);
+    const { data, error } = await q;
+    if (!error && data) data.forEach(drawIncoming);
+  }
+
+  function subscribeRealtime() {
+    if (channel) client.removeChannel(channel);
+    channel = client
+      .channel('public:messages:' + Math.random().toString(36).slice(2))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        drawIncoming(payload.new);
+      })
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          // Reconnect shortly, and immediately poll so nothing sent during the gap is missed.
+          setTimeout(() => { if (myId) subscribeRealtime(); }, 2000);
+          pollForMissed();
+        }
+      });
   }
 
   async function loadAndSubscribe() {
@@ -272,24 +324,14 @@
       renderAll(data || []);
     }
 
-    if (!subscribed) {
-      subscribed = true;
-      client
-        .channel('public:messages')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-          const m = payload.new;
-          if (m.uid === myId) {
-            const idx = pendingByText.findIndex(p => p.text === m.text);
-            if (idx !== -1) {
-              // Already drawn optimistically, this is just the server echo. Skip the redraw.
-              pendingByText.splice(idx, 1);
-              return;
-            }
-          }
-          addRow(m, true);
-        })
-        .subscribe();
+    subscribeRealtime();
+
+    if (!pollTimer) {
+      pollTimer = setInterval(pollForMissed, 8000); // background safety net, not the main path
     }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && myId) pollForMissed();
+    });
   }
 
   // Messages we've drawn locally before the server confirms them, keyed by a client-generated id.
@@ -335,6 +377,10 @@
       signOutBtn.style.display = 'none';
       authOverlay.style.display = 'flex';
       feed.innerHTML = '<div class="empty">Sign in to see the chat.</div>';
+      if (channel) { client.removeChannel(channel); channel = null; }
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      seenIds.clear();
+      lastSeenAt = null;
     }
   });
 })();
