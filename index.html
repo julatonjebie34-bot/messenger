@@ -1150,40 +1150,73 @@
     }
   }
   async function endCall(sendHangup=true){
+    // Clean up the local call FIRST. Do not wait for Supabase before closing
+    // the call, otherwise a slow/offline database request can make Hang Up
+    // appear not to work.
     if(callEnding) return;
     callEnding = true;
-    const peer=activeCallPeer, cid=activeCallId;
-    if(sendHangup && peer && cid) { try{await sendSignal(peer,'hangup',{},cid)}catch(e){} }
-    if(localStream) localStream.getTracks().forEach(t=>t.stop());
+
+    const peer = activeCallPeer;
+    const cid = activeCallId;
+
+    // Send the hangup in the background. The local user should never have to
+    // wait for the network/database before the call screen closes.
+    if(sendHangup && peer && cid){
+      sendSignal(peer,'hangup',{reason:'ended'},cid).catch(()=>{});
+    }
+
+    if(localStream){
+      localStream.getTracks().forEach(t=>{ try{t.stop();}catch(e){} });
+    }
     localStream=null;
-    if(peerConnection) peerConnection.close();
+
+    const pc = peerConnection;
     peerConnection=null;
+    if(pc){
+      try { pc.ontrack=null; pc.onicecandidate=null; pc.onconnectionstatechange=null; } catch(e){}
+      try { pc.close(); } catch(e){}
+    }
+
     activeCallPeer=null;
     activeCallId=null;
     incomingOffer=null;
     pendingIce=[];
+
     if(callAudioSource){ try{callAudioSource.disconnect();}catch(e){} callAudioSource=null; }
-    if(callAudioContext){ try{callAudioContext.close();}catch(e){} callAudioContext=null; }
+    if(callAudioContext){ try{await callAudioContext.close();}catch(e){} callAudioContext=null; }
     callAudioStream=null;
+
+    try { remoteAudio.pause(); } catch(e){}
     remoteAudio.srcObject=null;
+    remoteAudio.muted=false;
+    remoteAudio.volume=1;
+
     hideCallUI();
     updateCallButtons();
-    setTimeout(()=>{ callEnding=false; }, 0);
+
+    // Allow another call immediately after ending this one.
+    callEnding=false;
   }
+
   callBtn.addEventListener('click',startCall);
   acceptCallBtn.addEventListener('click',acceptCall);
-  declineCallBtn.addEventListener('click', async ()=>{
-    if (incomingOffer && incomingOffer.sender_id && incomingOffer.call_id) {
-      const peer = incomingOffer.sender_id;
-      const cid = incomingOffer.call_id;
-      incomingOffer = null;
-      try { await sendSignal(peer,'hangup',{},cid); } catch(e) {}
+  declineCallBtn.addEventListener('click', ()=>{
+    // Decline must close immediately, even if the signal insert is slow.
+    if(incomingOffer && incomingOffer.sender_id && incomingOffer.call_id){
+      const peer=incomingOffer.sender_id;
+      const cid=incomingOffer.call_id;
+      incomingOffer=null;
+      sendSignal(peer,'hangup',{reason:'declined'},cid).catch(()=>{});
       endCall(false);
     } else {
       endCall(true);
     }
   });
-  hangupCallBtn.addEventListener('click',()=>endCall(true));
+  hangupCallBtn.addEventListener('click', (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    endCall(true);
+  });
   speakerCallBtn.addEventListener('click',toggleSpeaker);
 
   form.addEventListener('submit', async (e) => {
