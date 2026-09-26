@@ -36,9 +36,15 @@
   header { padding: max(13px, env(safe-area-inset-top,0px)) 14px 13px; background:var(--panel);
     border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-shrink:0;
     box-shadow: var(--shadow); position:relative; z-index:2; }
-  header .dot { width:9px; height:9px; border-radius:50%; background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent); flex-shrink:0; }
-  header h1 { font-size:16px; margin:0; font-weight:700; letter-spacing:-.01em; }
-  header .sub { font-size:12px; color:var(--muted); margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .headerTitle { display:flex; flex-direction:column; min-width:0; gap:1px; }
+  header h1 { font-size:16px; margin:0; font-weight:700; letter-spacing:-.01em; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; }
+  .chat-status { display:none; align-items:center; gap:5px; font-size:11.5px; color:var(--muted); font-weight:500; }
+  .chat-status.show { display:flex; }
+  .chat-status .dot-sm { width:7px; height:7px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+  .chat-status.online { color:var(--success); }
+  .chat-status.online .dot-sm { background:var(--success); box-shadow:0 0 0 2px color-mix(in srgb, var(--success) 22%, transparent); }
+  header .sub { font-size:12px; color:var(--muted); margin-left:auto; display:flex; align-items:center; gap:10px; flex-shrink:0; }
   #signOutBtn { border:none; background:transparent; color:var(--muted); font-size:12px; cursor:pointer;
     padding:4px 0; font-weight:500; }
   #signOutBtn:hover { color:var(--danger); }
@@ -187,10 +193,16 @@
   #contactsList { flex:1; overflow-y:auto; }
   .contact-item .cinfo { min-width:0; display:flex; flex-direction:column; }
   .contact-item .cemail { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .contact-item .cemail.online { color:var(--success); font-weight:600; }
   .contact-item { display:flex; align-items:center; gap:11px; padding:12px 16px; cursor:pointer; position:relative;
     transition:background .12s ease; }
   .contact-item:active, .contact-item.active { background:var(--accent-soft); }
   .contact-item .avatar { width:34px; height:34px; }
+  .avatar-wrap { position:relative; width:34px; height:34px; flex-shrink:0; }
+  .avatar-wrap .avatar { width:100%; height:100%; }
+  .status-dot { position:absolute; right:-1px; bottom:-1px; width:11px; height:11px; border-radius:50%;
+    background:var(--muted); border:2px solid var(--panel); }
+  .status-dot.online { background:var(--success); }
   .contact-item .cname { font-size:14px; font-weight:600; }
   .unread-badge { margin-left:auto; min-width:20px; height:20px; padding:0 6px; border-radius:10px; background:var(--danger);
     color:#fff; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
@@ -223,8 +235,10 @@
 
 <header>
   <button class="menuBtn" id="menuBtn" type="button" title="Chats"><svg class="icon" viewBox="0 0 24 24" style="width:16px;height:16px"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg><span id="menuUnreadBadge" class="menu-unread-badge"></span></button>
-  <div class="dot"></div>
-  <h1 id="chatTitle">Group Chat</h1>
+  <div class="headerTitle">
+    <h1 id="chatTitle">Group Chat</h1>
+    <span id="chatStatus" class="chat-status"><span class="dot-sm"></span><span id="chatStatusText"></span></span>
+  </div>
   <div class="sub"><span id="who"></span><button id="signOutBtn" style="display:none">Sign out</button></div>
 </header>
 
@@ -264,9 +278,9 @@
     <div id="callTimer" style="display:none;font-size:24px;font-weight:700;margin-top:8px;">00:00</div>
     <div class="callActions">
       <button id="acceptCallBtn" type="button" title="Accept"><svg class="icon" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.68 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.32 1.85.55 2.81.68A2 2 0 0122 16.92z"/></svg></button>
-      <button id="declineCallBtn" type="button" title="Decline"><svg class="icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-      <button id="hangupCallBtn" type="button" title="Hang up" style="display:none"><svg class="icon" viewBox="0 0 24 24"><path d="M10.68 13.31a16 16 0 003.4 2.46l1.27-1.27a2 2 0 012.11-.45c.91.32 1.85.55 2.81.68A2 2 0 0122 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-4.15-3.55"/><path d="M4.11 2H7a2 2 0 012 1.72c.13.96.36 1.9.68 2.81a2 2 0 01-.45 2.11l-.9.9"/><line x1="2" y1="2" x2="22" y2="22"/></svg></button>
-      <button id="speakerCallBtn" type="button" title="Speaker" style="display:none"><svg class="icon" viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 010 7"/><path d="M18.5 5.5a9 9 0 010 13"/></svg></button>
+      <button id="declineCallBtn" type="button" title="Decline"><svg class="icon" viewBox="0 0 24 24" style="transform:rotate(135deg)"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.68 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.32 1.85.55 2.81.68A2 2 0 0122 16.92z"/></svg></button>
+      <button id="hangupCallBtn" type="button" title="Hang up" style="display:none"><svg class="icon" viewBox="0 0 24 24" style="transform:rotate(135deg)"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.68 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.32 1.85.55 2.81.68A2 2 0 0122 16.92z"/></svg></button>
+      <button id="speakerCallBtn" type="button" title="Speaker" style="display:none"><svg class="icon" viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4z"/></svg></button>
     </div>
   </div>
 </div>
@@ -320,6 +334,8 @@
 
   const menuBtn = document.getElementById('menuBtn');
   const chatTitle = document.getElementById('chatTitle');
+  const chatStatus = document.getElementById('chatStatus');
+  const chatStatusText = document.getElementById('chatStatusText');
   const contactsOverlay = document.getElementById('contactsOverlay');
   const closeContacts = document.getElementById('closeContacts');
   const contactsList = document.getElementById('contactsList');
@@ -447,6 +463,8 @@
   let callAudioContext = null;
   let callAudioSource = null;
   let callAudioStream = null;
+  let presenceChannel = null;
+  let onlineIds = new Set(); // profile ids currently online, from the shared presence channel
   const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
   let contacts = []; // other users available for a private chat, loaded from "profiles"
   const unreadCounts = {};
@@ -568,20 +586,27 @@
     for (const c of filtered) {
       const item = document.createElement('div');
       item.className = 'contact-item' + (currentChat.type === 'dm' && currentChat.id === c.id ? ' active' : '');
+      const avWrap = document.createElement('div');
+      avWrap.className = 'avatar-wrap';
       const av = document.createElement('div');
       av.className = 'avatar';
       av.style.backgroundImage = `url("${initialsAvatar(c.username || '?')}")`;
+      const online = onlineIds.has(c.id);
+      const statusDot = document.createElement('span');
+      statusDot.className = 'status-dot' + (online ? ' online' : '');
+      avWrap.appendChild(av);
+      avWrap.appendChild(statusDot);
       const info = document.createElement('div');
       info.className = 'cinfo';
       const name = document.createElement('span');
       name.className = 'cname';
       name.textContent = c.username || 'Unknown';
       const email = document.createElement('span');
-      email.className = 'cemail';
-      email.textContent = c.email || '';
+      email.className = 'cemail' + (online ? ' online' : '');
+      email.textContent = online ? 'Active now' : (c.email || '');
       info.appendChild(name);
-      if (c.email) info.appendChild(email);
-      item.appendChild(av);
+      if (online || c.email) info.appendChild(email);
+      item.appendChild(avWrap);
       item.appendChild(info);
       const unread = Number(unreadCounts[c.id] || 0);
       if (unread > 0 && !(currentChat.type === 'dm' && currentChat.id === c.id)) {
@@ -602,6 +627,7 @@
     contactsOverlay.classList.remove('show');
     renderContacts();
     updateCallButtons();
+    updateChatStatus();
     resetAndLoad();
   }
 
@@ -1011,7 +1037,7 @@
     stopCallTimer();
     speakerOn=false;
     speakerCallBtn.classList.remove('on');
-    speakerCallBtn.innerHTML=ICON_SPEAKER_ON;
+    speakerCallBtn.innerHTML=ICON_SPEAKER_OFF;
     speakerCallBtn.title='Speaker';
   }
 
@@ -1023,6 +1049,39 @@
 
   async function sendSignal(to, type, payload, callId) {
     await client.from('call_signals').insert({ sender_id:myId, recipient_id:to, type, call_id:callId, payload });
+  }
+
+  // --- Presence: a lightweight shared channel that tracks who's currently online. ---
+  function setupPresence() {
+    if (!myId) return;
+    if (presenceChannel) client.removeChannel(presenceChannel);
+    presenceChannel = client.channel('online-users', { config: { presence: { key: myId } } });
+    presenceChannel.on('presence', { event: 'sync' }, () => {
+      onlineIds = new Set(Object.keys(presenceChannel.presenceState()));
+      renderContacts();
+      updateChatStatus();
+    });
+    presenceChannel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        try { await presenceChannel.track({ online_at: new Date().toISOString() }); } catch (e) {}
+      }
+    });
+  }
+
+  function teardownPresence() {
+    if (presenceChannel) { client.removeChannel(presenceChannel); presenceChannel = null; }
+    onlineIds = new Set();
+  }
+
+  function updateChatStatus() {
+    if (currentChat.type !== 'dm') {
+      chatStatus.classList.remove('show', 'online');
+      return;
+    }
+    const online = onlineIds.has(currentChat.id);
+    chatStatus.classList.add('show');
+    chatStatus.classList.toggle('online', online);
+    chatStatusText.textContent = online ? 'Active now' : 'Offline';
   }
 
   function setupCallChannel() {
@@ -1395,6 +1454,7 @@
         await ensureProfile();
         await loadContacts();
         setupCallChannel();
+        setupPresence();
         updateCallButtons();
       }, 0);
       loadAndSubscribe();
@@ -1408,6 +1468,8 @@
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       endCall(false);
       if (callChannel) { client.removeChannel(callChannel); callChannel = null; }
+      teardownPresence();
+      chatStatus.classList.remove('show', 'online');
       seenIds.clear();
       lastSeenAt = null;
     }
