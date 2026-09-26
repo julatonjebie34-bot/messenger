@@ -157,11 +157,12 @@
   .contact-empty { padding:16px; font-size:13px; color:var(--muted); }
 
   #aiFab { position:fixed; z-index:35; width:52px; height:52px; border-radius:50%; border:none;
-    background:linear-gradient(135deg,#4f7cff,#8a5cff); color:#fff; font-size:22px; cursor:pointer;
+    background:linear-gradient(135deg,#4f7cff,#8a5cff); color:#fff; font-size:22px; cursor:grab;
     display:flex; align-items:center; justify-content:center;
     right:18px; bottom:max(18px, calc(env(safe-area-inset-bottom,0px) + 12px));
-    box-shadow:0 8px 24px rgba(79,124,255,0.4); transition:transform .15s ease; }
-  #aiFab:active { transform:scale(0.92); }
+    box-shadow:0 8px 24px rgba(79,124,255,0.4); transition:transform .15s ease; touch-action:none; }
+  #aiFab:active { transform:scale(0.92); cursor:grabbing; }
+  #aiFab.dragging { transition:none; }
   #aiFab .aiFabBadge { position:absolute; top:-3px; right:-3px; width:12px; height:12px; border-radius:50%;
     background:#34c759; border:2px solid var(--panel); display:none; }
   #aiFab .aiFabBadge.show { display:block; }
@@ -1421,11 +1422,11 @@
 
 <script>
 (function () {
-  // ---- Configure this to point at your own backend endpoint that calls an AI
-  // API server-side (never call a paid AI API directly from the browser, since
-  // that would expose your API key to every visitor). The endpoint should accept
-  // { message, history } as JSON and return { reply: "..." }.
-  const AI_ENDPOINT = ''; // e.g. 'https://your-project.supabase.co/functions/v1/assistant'
+  // ---- Set this to your deployed Supabase Edge Function URL (see assistant/index.ts
+  // and the setup steps you were given) to get real AI answers. Until then, a simple
+  // local fallback responds instead. Never call a paid AI API directly from the
+  // browser, since that exposes your API key to every visitor.
+  const AI_ENDPOINT = ''; // e.g. 'https://YOUR-PROJECT.functions.supabase.co/assistant'
 
   const fab = document.getElementById('aiFab');
   const fabBadge = document.getElementById('aiFabBadge');
@@ -1440,15 +1441,99 @@
   let history = []; // [{role:'user'|'assistant', content:'...'}]
   let open = false;
 
+  function positionPanelNearFab() {
+    const fabRect = fab.getBoundingClientRect();
+    const panelW = panel.offsetWidth || 340;
+    const panelH = panel.offsetHeight || 480;
+    let left = fabRect.left;
+    let top = fabRect.top - panelH - 12;
+    if (top < 8) top = fabRect.bottom + 12; // not enough room above, open below instead
+    if (top + panelH > window.innerHeight - 8) top = window.innerHeight - panelH - 8;
+    if (left + panelW > window.innerWidth - 8) left = window.innerWidth - panelW - 8;
+    if (left < 8) left = 8;
+    panel.style.left = left + 'px';
+    panel.style.top = top + 'px';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+  }
+
   function setOpen(v) {
     open = v;
     panel.classList.toggle('show', open);
     fabBadge.classList.remove('show');
-    if (open) { input.focus(); feed.scrollTop = feed.scrollHeight; }
+    if (open) {
+      positionPanelNearFab();
+      input.focus();
+      feed.scrollTop = feed.scrollHeight;
+    }
   }
 
-  fab.addEventListener('click', () => setOpen(!open));
   closeBtn.addEventListener('click', () => setOpen(false));
+
+  // --- Drag to move the button; a tap (no real movement) still opens the chat ---
+  const DRAG_THRESHOLD = 6;
+  let dragging = false, moved = false, startX = 0, startY = 0, origX = 0, origY = 0;
+
+  function clampToViewport(x, y) {
+    const maxX = window.innerWidth - fab.offsetWidth - 6;
+    const maxY = window.innerHeight - fab.offsetHeight - 6;
+    return { x: Math.min(Math.max(6, x), Math.max(6, maxX)), y: Math.min(Math.max(6, y), Math.max(6, maxY)) };
+  }
+
+  function placeFab(x, y) {
+    const p = clampToViewport(x, y);
+    fab.style.left = p.x + 'px';
+    fab.style.top = p.y + 'px';
+    fab.style.right = 'auto';
+    fab.style.bottom = 'auto';
+    return p;
+  }
+
+  function loadSavedFabPos() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('aiFabPos') || 'null');
+      if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') placeFab(saved.x, saved.y);
+    } catch (e) { /* ignore */ }
+  }
+
+  fab.addEventListener('pointerdown', (e) => {
+    dragging = true; moved = false;
+    startX = e.clientX; startY = e.clientY;
+    const rect = fab.getBoundingClientRect();
+    origX = rect.left; origY = rect.top;
+    fab.classList.add('dragging');
+    fab.setPointerCapture(e.pointerId);
+  });
+
+  fab.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX, dy = e.clientY - startY;
+    if (!moved && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) moved = true;
+    if (moved) placeFab(origX + dx, origY + dy);
+  });
+
+  fab.addEventListener('pointerup', (e) => {
+    if (!dragging) return;
+    dragging = false;
+    fab.classList.remove('dragging');
+    if (moved) {
+      const rect = fab.getBoundingClientRect();
+      try { localStorage.setItem('aiFabPos', JSON.stringify({ x: rect.left, y: rect.top })); } catch (err) { /* ignore */ }
+      if (open) positionPanelNearFab();
+    } else {
+      setOpen(!open);
+    }
+  });
+
+  fab.addEventListener('pointercancel', () => { dragging = false; fab.classList.remove('dragging'); });
+
+  window.addEventListener('resize', () => {
+    const rect = fab.getBoundingClientRect();
+    placeFab(rect.left, rect.top);
+    if (open) positionPanelNearFab();
+  });
+
+  loadSavedFabPos();
 
   function addBubble(role, text) {
     if (empty) empty.remove();
