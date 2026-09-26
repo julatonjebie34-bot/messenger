@@ -444,6 +444,9 @@
   let callTimerInterval = null;
   let speakerOn = false;
   let callEnding = false;
+  let callAudioContext = null;
+  let callAudioSource = null;
+  let callAudioStream = null;
   const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
   let contacts = []; // other users available for a private chat, loaded from "profiles"
   const unreadCounts = {};
@@ -1231,14 +1234,16 @@
     incomingOffer=null;
     pendingIce=[];
 
-    if(callAudioSource){ try{callAudioSource.disconnect();}catch(e){} callAudioSource=null; }
-    if(callAudioContext){ try{await callAudioContext.close();}catch(e){} callAudioContext=null; }
-    callAudioStream=null;
+    try {
+      if(callAudioSource){ try{callAudioSource.disconnect();}catch(e){} callAudioSource=null; }
+      if(callAudioContext){ try{await callAudioContext.close();}catch(e){} callAudioContext=null; }
+      callAudioStream=null;
 
-    try { remoteAudio.pause(); } catch(e){}
-    remoteAudio.srcObject=null;
-    remoteAudio.muted=false;
-    remoteAudio.volume=1;
+      try { remoteAudio.pause(); } catch(e){}
+      remoteAudio.srcObject=null;
+      remoteAudio.muted=false;
+      remoteAudio.volume=1;
+    } catch(e){ console.error('Call cleanup error:', e); }
 
     hideCallUI();
     updateCallButtons();
