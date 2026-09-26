@@ -206,6 +206,17 @@
   .contact-item .cname { font-size:14px; font-weight:600; }
   .unread-badge { margin-left:auto; min-width:20px; height:20px; padding:0 6px; border-radius:10px; background:var(--danger);
     color:#fff; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .contact-right { margin-left:auto; display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  .followers-count { font-size:11px; color:var(--muted); font-weight:600; white-space:nowrap; }
+  .follow-btn { border:1.5px solid var(--accent); background:transparent; color:var(--accent); font-size:11.5px;
+    font-weight:700; padding:6px 12px; border-radius:14px; cursor:pointer; white-space:nowrap;
+    transition:background .15s ease, color .15s ease, border-color .15s ease; flex-shrink:0; }
+  .follow-btn:hover { background:var(--accent-soft); }
+  .follow-btn:active { transform:scale(.95); }
+  .follow-btn.following { border-color:var(--border); background:var(--bg); color:var(--muted); }
+  .follow-btn.following:hover { border-color:var(--danger); color:var(--danger); background:color-mix(in srgb, var(--danger) 8%, transparent); }
+  .follow-btn.following:hover::after { content:'Unfollow'; }
+  .follow-btn.following:hover .follow-label { display:none; }
   .menu-unread-badge { position:absolute; top:-4px; right:-4px; min-width:17px; height:17px; padding:0 4px; border-radius:9px;
     background:var(--danger); color:#fff; font-size:10px; font-weight:700; display:none; align-items:center;
     justify-content:center; border:2px solid var(--panel); }
@@ -469,6 +480,8 @@
   let contacts = []; // other users available for a private chat, loaded from "profiles"
   const unreadCounts = {};
   const menuUnreadBadge = document.getElementById('menuUnreadBadge');
+  let followingIds = new Set(); // profile ids the current user follows
+  let followerCounts = {}; // profile id -> number of followers, from the "follows" table
 
   function readKey(contactId) { return 'chat_read_' + myId + '_' + contactId; }
 
@@ -608,15 +621,78 @@
       if (online || c.email) info.appendChild(email);
       item.appendChild(avWrap);
       item.appendChild(info);
+
+      const right = document.createElement('div');
+      right.className = 'contact-right';
+
+      const followers = Number(followerCounts[c.id] || 0);
+      const followersEl = document.createElement('span');
+      followersEl.className = 'followers-count';
+      followersEl.textContent = followers === 1 ? '1 follower' : followers + ' followers';
+      right.appendChild(followersEl);
+
+      const isFollowing = followingIds.has(c.id);
+      const followBtn = document.createElement('button');
+      followBtn.type = 'button';
+      followBtn.className = 'follow-btn' + (isFollowing ? ' following' : '');
+      followBtn.innerHTML = `<span class="follow-label">${isFollowing ? 'Following' : 'Follow'}</span>`;
+      followBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleFollow(c.id);
+      });
+      right.appendChild(followBtn);
+
       const unread = Number(unreadCounts[c.id] || 0);
       if (unread > 0 && !(currentChat.type === 'dm' && currentChat.id === c.id)) {
         const badge = document.createElement('span');
         badge.className = 'unread-badge';
         badge.textContent = unread > 99 ? '99+' : String(unread);
-        item.appendChild(badge);
+        right.appendChild(badge);
       }
+      item.appendChild(right);
+
       item.addEventListener('click', () => selectChat({ type: 'dm', id: c.id, name: c.username || 'Unknown' }));
       contactsList.appendChild(item);
+    }
+  }
+
+  // --- Follows: who I follow, and how many followers each contact has. ---
+  async function loadFollows() {
+    if (!myId) return;
+    const { data, error } = await client.from('follows').select('follower_id, followed_id').limit(5000);
+    if (error) {
+      followingIds = new Set();
+      followerCounts = {};
+      showBanner('Follow feature needs a "follows" table in Supabase — see setup notes.');
+      return;
+    }
+    followingIds = new Set((data || []).filter(r => r.follower_id === myId).map(r => r.followed_id));
+    const counts = {};
+    for (const r of (data || [])) counts[r.followed_id] = (counts[r.followed_id] || 0) + 1;
+    followerCounts = counts;
+    renderContacts();
+    updateChatStatus();
+  }
+
+  async function toggleFollow(targetId) {
+    if (!myId || targetId === myId) return;
+    const wasFollowing = followingIds.has(targetId);
+    try {
+      if (wasFollowing) {
+        const { error } = await client.from('follows').delete().eq('follower_id', myId).eq('followed_id', targetId);
+        if (error) throw error;
+        followingIds.delete(targetId);
+        followerCounts[targetId] = Math.max(0, (followerCounts[targetId] || 1) - 1);
+      } else {
+        const { error } = await client.from('follows').insert({ follower_id: myId, followed_id: targetId });
+        if (error) throw error;
+        followingIds.add(targetId);
+        followerCounts[targetId] = (followerCounts[targetId] || 0) + 1;
+      }
+      renderContacts();
+      updateChatStatus();
+    } catch (e) {
+      showBanner('Could not update follow: ' + (e.message || 'unknown error'));
     }
   }
 
@@ -643,6 +719,7 @@
   menuBtn.addEventListener('click', () => {
     contactSearch.value = '';
     loadContacts();
+    loadFollows();
     contactsOverlay.classList.add('show');
     setTimeout(() => contactSearch.focus(), 50);
   });
@@ -1081,7 +1158,9 @@
     const online = onlineIds.has(currentChat.id);
     chatStatus.classList.add('show');
     chatStatus.classList.toggle('online', online);
-    chatStatusText.textContent = online ? 'Active now' : 'Offline';
+    const followers = Number(followerCounts[currentChat.id] || 0);
+    const followerText = followers === 1 ? '1 follower' : followers + ' followers';
+    chatStatusText.textContent = (online ? 'Active now' : 'Offline') + ' · ' + followerText;
   }
 
   function setupCallChannel() {
@@ -1453,6 +1532,7 @@
       setTimeout(async () => {
         await ensureProfile();
         await loadContacts();
+        await loadFollows();
         setupCallChannel();
         setupPresence();
         updateCallButtons();
@@ -1469,6 +1549,8 @@
       endCall(false);
       if (callChannel) { client.removeChannel(callChannel); callChannel = null; }
       teardownPresence();
+      followingIds = new Set();
+      followerCounts = {};
       chatStatus.classList.remove('show', 'online');
       seenIds.clear();
       lastSeenAt = null;
