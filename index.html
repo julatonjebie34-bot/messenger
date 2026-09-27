@@ -503,6 +503,7 @@
   let callTimerInterval = null;
   let speakerOn = false;
   let callEnding = false;
+  let callGen = 0; // bumped whenever a call ends, so a cancelled call's in-flight setup can detect it and abort
   const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
   let contacts = []; // other users available for a private chat, loaded from "profiles"
   const unreadCounts = {};
@@ -1529,9 +1530,17 @@
   async function createPeer(peerId, initiator) {
     if (peerConnection) { try{peerConnection.close();}catch(e){} }
     pendingIce=[];
-    localStream=await navigator.mediaDevices.getUserMedia({
+    const gen = callGen;
+    const stream = await navigator.mediaDevices.getUserMedia({
       audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}
     });
+    if (gen !== callGen) {
+      // The call was cancelled/hung up while we were waiting on mic permission.
+      // Don't resurrect a connection for a call that's already over.
+      stream.getTracks().forEach(t=>{ try{t.stop();}catch(e){} });
+      throw new Error('call cancelled');
+    }
+    localStream = stream;
     peerConnection=new RTCPeerConnection(rtcConfig);
     localStream.getTracks().forEach(t=>peerConnection.addTrack(t,localStream));
 
@@ -1592,7 +1601,10 @@
     activeCallId=makeClientId(); activeCallPeer=currentChat.id;
     showCallUI(currentChat.name,'Calling…',false);
     try { await createPeer(activeCallPeer,true); }
-    catch(e){ showBanner('Could not start call. Check microphone permission.'); endCall(false); }
+    catch(e){
+      if (e && e.message !== 'call cancelled') showBanner('Could not start call. Check microphone permission.');
+      endCall(false);
+    }
   }
   async function acceptCall(){
     if(!incomingOffer) return;
@@ -1640,8 +1652,10 @@
       speakerCallBtn.textContent='🔊';
       try { await remoteAudio.play(); } catch(e){}
     } catch(e){
-      console.error('Accept call error:',e);
-      showBanner('Could not accept call. Allow microphone permission and try again.');
+      if (e && e.message !== 'call cancelled') {
+        console.error('Accept call error:',e);
+        showBanner('Could not accept call. Allow microphone permission and try again.');
+      }
       endCall(false);
     }
   }
@@ -1650,6 +1664,7 @@
     // afterward so Hang Up / Decline can never leave the call card stuck.
     if(callEnding) return;
     callEnding = true;
+    callGen++; // invalidate any call setup still in flight (e.g. awaiting mic permission)
 
     const peer = activeCallPeer;
     const cid = activeCallId;
@@ -2029,6 +2044,7 @@
   }
   function closeMsgMenu() {
     msgMenu.classList.remove('show');
+    msgMenu.style.display = '';
     msgMenuOverlay.classList.remove('show');
     menuTargetId = null;
   }
