@@ -622,16 +622,16 @@
     followStateByUser.clear();
     if (!ids.length) return;
     const { data, error } = await client.from('follows')
-      .select('follower_id, following_id')
-      .or(`follower_id.eq.${myId},following_id.in.(${ids.join(',')})`);
+      .select('follower_id, followed_id')
+      .or(`follower_id.eq.${myId},followed_id.in.(${ids.join(',')})`);
     if (error || !data) return;
     const counts = new Map();
     for (const row of data) {
-      if (ids.includes(row.following_id)) counts.set(row.following_id, (counts.get(row.following_id) || 0) + 1);
-      if (row.follower_id === myId && ids.includes(row.following_id)) {
-        const cur = followStateByUser.get(row.following_id) || {};
+      if (ids.includes(row.followed_id)) counts.set(row.followed_id, (counts.get(row.followed_id) || 0) + 1);
+      if (row.follower_id === myId && ids.includes(row.followed_id)) {
+        const cur = followStateByUser.get(row.followed_id) || {};
         cur.following = true;
-        followStateByUser.set(row.following_id, cur);
+        followStateByUser.set(row.followed_id, cur);
       }
     }
     for (const c of contacts) {
@@ -650,12 +650,12 @@
     try {
       if (state.following) {
         const { error } = await client.from('follows').delete()
-          .eq('follower_id', myId).eq('following_id', userId);
+          .eq('follower_id', myId).eq('followed_id', userId);
         if (error) throw error;
         state.following = false;
         state.followers = Math.max(0, Number(state.followers || 0) - 1);
       } else {
-        const { error } = await client.from('follows').insert({ follower_id: myId, following_id: userId });
+        const { error } = await client.from('follows').insert({ follower_id: myId, followed_id: userId });
         if (error) throw error;
         state.following = true;
         state.followers = Number(state.followers || 0) + 1;
