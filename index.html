@@ -1259,21 +1259,44 @@
   }
 
   async function toggleReaction(messageId, emoji) {
-    if (!myId) return;
+    if (!myId || messageId == null) return;
+
+    // One reaction per user per message: tapping another emoji replaces the
+    // previous one. Tapping the same emoji again removes the reaction.
     const counts = reactionsByMessage.get(messageId);
-    const mine = counts && counts.get(emoji) && counts.get(emoji).has(myId);
-    if (mine) {
-      await client.from('message_reactions').delete().eq('message_id', messageId).eq('user_id', myId).eq('emoji', emoji);
-      if (counts) { const set = counts.get(emoji); if (set) { set.delete(myId); if (!set.size) counts.delete(emoji); } }
-    } else {
-      await client.from('message_reactions').insert({ message_id: messageId, user_id: myId, emoji });
-      if (!reactionsByMessage.has(messageId)) reactionsByMessage.set(messageId, new Map());
-      const c = reactionsByMessage.get(messageId);
-      if (!c.has(emoji)) c.set(emoji, new Set());
-      c.get(emoji).add(myId);
+    const mine = !!(counts && counts.get(emoji) && counts.get(emoji).has(myId));
+
+    try {
+      const { error: delError } = await client.from('message_reactions')
+        .delete()
+        .eq('message_id', messageId)
+        .eq('user_id', myId);
+      if (delError) throw delError;
+
+      if (counts) {
+        for (const [existingEmoji, userSet] of counts) {
+          userSet.delete(myId);
+          if (!userSet.size) counts.delete(existingEmoji);
+        }
+      }
+
+      // Same emoji = remove only. Different emoji = replace with the new one.
+      if (!mine) {
+        const { error: insertError } = await client.from('message_reactions')
+          .insert({ message_id: messageId, user_id: myId, emoji });
+        if (insertError) throw insertError;
+
+        if (!reactionsByMessage.has(messageId)) reactionsByMessage.set(messageId, new Map());
+        const c = reactionsByMessage.get(messageId);
+        if (!c.has(emoji)) c.set(emoji, new Set());
+        c.get(emoji).add(myId);
+      }
+
+      const domRow = feed.querySelector(`[data-id="${messageId}"]`);
+      if (domRow) renderReactionsBar(domRow, messageId);
+    } catch (e) {
+      showBanner('Could not update reaction: ' + (e.message || 'unknown error'));
     }
-    const domRow = feed.querySelector(`[data-id="${messageId}"]`);
-    if (domRow) renderReactionsBar(domRow, messageId);
   }
 
   function subscribeRealtime() {
@@ -1419,12 +1442,20 @@
   }
 
   function hideCallUI(){
+    // Hide immediately. Do not wait for WebRTC or Supabase cleanup.
     callOverlay.classList.remove('show');
+    callOverlay.style.display = 'none';
     stopCallTimer();
     speakerOn=false;
     speakerCallBtn.classList.remove('on');
     speakerCallBtn.textContent='🔊';
     speakerCallBtn.title='Speaker';
+    declineCallBtn.style.display='block';
+    hangupCallBtn.style.display='none';
+    speakerCallBtn.style.display='none';
+    acceptCallBtn.style.display='none';
+    // Let CSS .show control it on the next call.
+    requestAnimationFrame(() => { if (callOverlay) callOverlay.style.display = ''; });
   }
 
   function markCallConnected(startedAt) {
@@ -1442,6 +1473,7 @@
     if (callChannel) client.removeChannel(callChannel);
     callChannel=client.channel('calls_'+myId).on('postgres_changes',{event:'INSERT',schema:'public',table:'call_signals',filter:`recipient_id=eq.${myId}`}, async ({new:sig})=>{
       if (sig.type==='offer') {
+        if (callEnding || peerConnection || activeCallId) return;
         incomingOffer=sig; activeCallId=sig.call_id; activeCallPeer=sig.sender_id;
         showCallUI(sig.payload?.name || 'Someone','Incoming voice call',true);
       } else if (sig.call_id===activeCallId) await handleCallSignal(sig);
@@ -1613,20 +1645,19 @@
       endCall(false);
     }
   }
-  async function endCall(sendHangup=true){
-    // Clean up the local call FIRST. Do not wait for Supabase before closing
-    // the call, otherwise a slow/offline database request can make Hang Up
-    // appear not to work.
+  async function endCall(sendHangup=true, reason='ended'){
+    // Close the UI and local media immediately. Network/WebRTC cleanup happens
+    // afterward so Hang Up / Decline can never leave the call card stuck.
     if(callEnding) return;
     callEnding = true;
 
     const peer = activeCallPeer;
     const cid = activeCallId;
 
-    // Send the hangup in the background. The local user should never have to
-    // wait for the network/database before the call screen closes.
+    hideCallUI();
+
     if(sendHangup && peer && cid){
-      sendSignal(peer,'hangup',{reason:'ended'},cid).catch(()=>{});
+      sendSignal(peer,'hangup',{reason},cid).catch(()=>{});
     }
 
     if(localStream){
@@ -1647,7 +1678,11 @@
     pendingIce=[];
 
     if(callAudioSource){ try{callAudioSource.disconnect();}catch(e){} callAudioSource=null; }
-    if(callAudioContext){ try{await callAudioContext.close();}catch(e){} callAudioContext=null; }
+    if(callAudioContext){
+      const ctx=callAudioContext;
+      callAudioContext=null;
+      ctx.close().catch(()=>{});
+    }
     callAudioStream=null;
 
     try { remoteAudio.pause(); } catch(e){}
@@ -1655,10 +1690,7 @@
     remoteAudio.muted=false;
     remoteAudio.volume=1;
 
-    hideCallUI();
     updateCallButtons();
-
-    // Allow another call immediately after ending this one.
     callEnding=false;
   }
 
@@ -2016,6 +2048,9 @@
   });
 
   let longPressTimer = null;
+  let longPressOpened = false;
+  let longPressRow = null;
+
   feed.addEventListener('contextmenu', (e) => {
     const row = e.target.closest('.row[data-id]');
     if (!row) return;
@@ -2023,18 +2058,42 @@
     const m = messagesById.get(Number(row.dataset.id)) || messagesById.get(row.dataset.id);
     if (m) openMsgMenu(e.clientX, e.clientY, m, row);
   });
+
   feed.addEventListener('touchstart', (e) => {
     const row = e.target.closest('.row[data-id]');
     if (!row) return;
+    clearTimeout(longPressTimer);
+    longPressOpened = false;
+    longPressRow = row;
     const touch = e.touches[0];
     longPressTimer = setTimeout(() => {
       const m = messagesById.get(Number(row.dataset.id)) || messagesById.get(row.dataset.id);
-      if (m) openMsgMenu(touch.clientX, touch.clientY, m, row);
+      if (m) {
+        longPressOpened = true;
+        openMsgMenu(touch.clientX, touch.clientY, m, row);
+      }
     }, 480);
   }, { passive: true });
-  ['touchend', 'touchmove', 'touchcancel'].forEach(evt => {
-    feed.addEventListener(evt, () => { clearTimeout(longPressTimer); }, { passive: true });
-  });
+
+  feed.addEventListener('touchmove', () => {
+    clearTimeout(longPressTimer);
+  }, { passive: true });
+
+  feed.addEventListener('touchend', () => {
+    clearTimeout(longPressTimer);
+    // The long-press menu is a temporary touch preview. Release the finger
+    // and it disappears instead of remaining stuck over the chat.
+    if (longPressOpened) closeMsgMenu();
+    longPressOpened = false;
+    longPressRow = null;
+  }, { passive: true });
+
+  feed.addEventListener('touchcancel', () => {
+    clearTimeout(longPressTimer);
+    if (longPressOpened) closeMsgMenu();
+    longPressOpened = false;
+    longPressRow = null;
+  }, { passive: true });
 
   // --- Scroll-to-latest ---
   feed.addEventListener('scroll', () => {
