@@ -155,6 +155,14 @@
   .menuBtn { position:relative; }
   .menu-unread-badge { position:absolute; top:-5px; right:-5px; min-width:17px; height:17px; padding:0 4px; border-radius:9px; background:#e53935; color:#fff; font-size:10px; font-weight:700; display:none; align-items:center; justify-content:center; border:2px solid var(--panel); }
   .contact-empty { padding:16px; font-size:13px; color:var(--muted); }
+  .contact-item .cinfo { flex:1; }
+  .contact-item .cmeta { display:flex; align-items:center; gap:7px; margin-top:2px; }
+  .contact-item .follow-count { font-size:10.5px; color:var(--muted); }
+  .contact-item .presence-label { font-size:10.5px; color:var(--muted); }
+  .contact-item .presence-label.online { color:#34c759; }
+  .follow-btn { border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:14px; padding:5px 9px; font-size:11px; font-weight:600; cursor:pointer; flex-shrink:0; }
+  .follow-btn.following { background:var(--bg); color:var(--muted); }
+  .follow-btn:disabled { opacity:.5; cursor:default; }
 
   .date-sep { text-align:center; font-size:11px; color:var(--muted); margin:6px 0 2px; }
   .date-sep span { background:var(--bg); padding:2px 10px; border-radius:10px; }
@@ -499,6 +507,8 @@
   let contacts = []; // other users available for a private chat, loaded from "profiles"
   const unreadCounts = {};
   const menuUnreadBadge = document.getElementById('menuUnreadBadge');
+  const followStateByUser = new Map(); // userId -> { following, followers }
+  let followLoading = false;
 
   // --- Phase 1 additions: reactions, replies, edit/delete, typing, presence, read receipts ---
   const messagesById = new Map();       // id -> message row, used for reply-quote lookups & re-renders
@@ -606,9 +616,63 @@
     } catch (e) { /* profiles table may not be set up yet; contacts list will explain */ }
   }
 
+  async function loadFollowData() {
+    if (!myId) return;
+    const ids = contacts.map(c => c.id).filter(Boolean);
+    followStateByUser.clear();
+    if (!ids.length) return;
+    const { data, error } = await client.from('follows')
+      .select('follower_id, following_id')
+      .or(`follower_id.eq.${myId},following_id.in.(${ids.join(',')})`);
+    if (error || !data) return;
+    const counts = new Map();
+    for (const row of data) {
+      if (ids.includes(row.following_id)) counts.set(row.following_id, (counts.get(row.following_id) || 0) + 1);
+      if (row.follower_id === myId && ids.includes(row.following_id)) {
+        const cur = followStateByUser.get(row.following_id) || {};
+        cur.following = true;
+        followStateByUser.set(row.following_id, cur);
+      }
+    }
+    for (const c of contacts) {
+      const state = followStateByUser.get(c.id) || {};
+      state.followers = Number(c.followers_count || 0);
+      // The query above only gives a reliable count for rows visible under RLS; prefer the profile counter.
+      followStateByUser.set(c.id, state);
+    }
+  }
+
+  async function toggleFollow(userId, btn) {
+    if (!myId || !userId || userId === myId || followLoading) return;
+    followLoading = true;
+    btn.disabled = true;
+    const state = followStateByUser.get(userId) || { following:false, followers:0 };
+    try {
+      if (state.following) {
+        const { error } = await client.from('follows').delete()
+          .eq('follower_id', myId).eq('following_id', userId);
+        if (error) throw error;
+        state.following = false;
+        state.followers = Math.max(0, Number(state.followers || 0) - 1);
+      } else {
+        const { error } = await client.from('follows').insert({ follower_id: myId, following_id: userId });
+        if (error) throw error;
+        state.following = true;
+        state.followers = Number(state.followers || 0) + 1;
+      }
+      followStateByUser.set(userId, state);
+      renderContacts();
+    } catch (e) {
+      showBanner('Could not update follow: ' + (e.message || 'unknown error'));
+      btn.disabled = false;
+    } finally {
+      followLoading = false;
+    }
+  }
+
   async function loadContacts() {
     if (!myId) return;
-    const { data, error } = await client.from('profiles').select('id, username, email, last_seen').neq('id', myId).order('username');
+    const { data, error } = await client.from('profiles').select('id, username, email, last_seen, followers_count').neq('id', myId).order('username');
     if (error) {
       contacts = [];
       renderContacts();
@@ -616,6 +680,7 @@
       return;
     }
     contacts = data || [];
+    await loadFollowData();
     await loadUnreadCounts();
     renderContacts();
   }
@@ -680,8 +745,27 @@
       email.textContent = c.email || '';
       info.appendChild(name);
       if (c.email) info.appendChild(email);
+      const meta = document.createElement('div');
+      meta.className = 'cmeta';
+      const presence = document.createElement('span');
+      presence.className = 'presence-label' + (onlineUserIds.has(c.id) ? ' online' : '');
+      presence.textContent = onlineUserIds.has(c.id) ? 'Active now' : (c.last_seen ? 'Offline · ' + fmtRelativeTime(c.last_seen) : 'Offline');
+      const fstate = followStateByUser.get(c.id) || { following:false, followers:Number(c.followers_count || 0) };
+      const followerCount = document.createElement('span');
+      followerCount.className = 'follow-count';
+      followerCount.textContent = Number(fstate.followers || 0) + ' follower' + (Number(fstate.followers || 0) === 1 ? '' : 's');
+      meta.appendChild(presence);
+      meta.appendChild(followerCount);
+      info.appendChild(meta);
       item.appendChild(av);
       item.appendChild(info);
+      const followBtn = document.createElement('button');
+      followBtn.type = 'button';
+      followBtn.className = 'follow-btn' + (fstate.following ? ' following' : '');
+      followBtn.textContent = fstate.following ? 'Following' : 'Follow';
+      followBtn.title = fstate.following ? 'Unfollow' : 'Follow';
+      followBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleFollow(c.id, followBtn); });
+      item.appendChild(followBtn);
       const unread = Number(unreadCounts[c.id] || 0);
       if (unread > 0 && !(currentChat.type === 'dm' && currentChat.id === c.id)) {
         const badge = document.createElement('span');
