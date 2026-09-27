@@ -1436,7 +1436,7 @@
     callTitle.textContent = name || 'Voice call';
     callStatus.textContent = status;
     acceptCallBtn.style.display = incoming ? 'block' : 'none';
-    declineCallBtn.style.display = 'block';
+    declineCallBtn.style.display = incoming ? 'block' : 'none';
     hangupCallBtn.style.display = incoming ? 'none' : 'block';
     speakerCallBtn.style.display = incoming ? 'none' : 'block';
     callOverlay.classList.add('show');
