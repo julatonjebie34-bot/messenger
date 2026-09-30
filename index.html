@@ -215,12 +215,102 @@
   .edit-box .edit-actions button { border:none; border-radius:14px; padding:6px 14px; font-size:12.5px; font-weight:600; cursor:pointer; }
   .edit-box .save-btn { background:var(--bubble-me); color:var(--bubble-me-text); }
   .edit-box .cancel-btn { background:var(--panel-2); color:var(--text); }
+
+  #settingsOverlay { position:fixed; inset:0; z-index:25; display:none; align-items:center; justify-content:center; background:rgba(5,15,14,.5); padding:16px; }
+  #settingsOverlay.show { display:flex; }
+  #settingsCard { width:100%; max-width:420px; max-height:100%; overflow-y:auto; background:var(--panel); border:1px solid var(--border);
+    border-radius:22px; padding:22px 22px 24px; box-shadow:var(--shadow); animation:rowIn .18s ease-out; }
+  .settings-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
+  .settings-head h2 { margin:0; font-size:20px; letter-spacing:-.02em; }
+  .settings-head button { border:none; background:var(--panel-2); color:var(--muted); width:32px; height:32px; border-radius:50%; cursor:pointer; font-size:13px; }
+  .settings-email { font-size:13px; color:var(--muted); margin:0 0 18px; overflow-wrap:anywhere; }
+  .settings-section { border-top:1px solid var(--border); padding-top:18px; margin-top:18px; }
+  .settings-section h3 { margin:0 0 12px; font-size:15px; font-weight:650; }
+  #settingsCard label { display:block; font-size:12.5px; font-weight:600; color:var(--muted); margin:0 0 5px 2px; }
+  #settingsCard input { width:100%; padding:12px 14px; border-radius:12px; border:1px solid var(--border); background:var(--panel-2);
+    color:var(--text); font-size:15px; margin-bottom:12px; font-family:inherit; }
+  #settingsCard input:focus { border-color:var(--bubble-me); outline:none; }
+  #settingsCard button.primary { width:100%; border:none; background:var(--bubble-me); color:var(--bubble-me-text); padding:12px;
+    border-radius:12px; font-size:15px; font-weight:650; cursor:pointer; }
+  #settingsCard button.primary:disabled { opacity:.6; cursor:default; }
+  .settings-msg { font-size:13px; min-height:18px; margin:0 0 8px 2px; }
+  .settings-msg.err { color:var(--danger); } .settings-msg.ok { color:var(--ok); }
+
+  #welcome { position:fixed; inset:0; z-index:11; display:none; overflow-y:auto; background:var(--bg);
+    transition:opacity .45s ease, transform .45s ease; }
+  #welcome.show { display:block; }
+  #welcome.leaving { opacity:0; transform:scale(1.04); pointer-events:none; }
+  .w-orb { position:absolute; border-radius:50%; filter:blur(70px); pointer-events:none; opacity:.55;
+    background:color-mix(in srgb, var(--bubble-me) 55%, transparent); animation:orbDrift 14s ease-in-out infinite alternate; }
+  .w-orb.a { width:340px; height:340px; top:-90px; left:-110px; }
+  .w-orb.b { width:300px; height:300px; bottom:-80px; right:-100px; animation-duration:18s; animation-delay:-6s;
+    background:color-mix(in srgb, #2f9bff 40%, transparent); opacity:.35; }
+  @keyframes orbDrift { from { transform:translate(0,0) scale(1); } to { transform:translate(48px,-38px) scale(1.15); } }
+  .w-inner { position:relative; min-height:100%; max-width:460px; margin:0 auto; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center;
+    padding:calc(env(safe-area-inset-top,0px) + 32px) 24px calc(env(safe-area-inset-bottom,0px) + 32px); }
+  #welcome.play .w-in { animation:wIn .75s cubic-bezier(.2,.7,.2,1) both; animation-delay:calc(var(--d,0) * 1ms); }
+  @keyframes wIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:none; } }
+  .w-mark { position:relative; width:64px; height:64px; border-radius:20px; background:var(--bubble-me); color:var(--bubble-me-text);
+    display:flex; align-items:center; justify-content:center; margin-bottom:22px;
+    box-shadow:0 12px 30px color-mix(in srgb, var(--bubble-me) 40%, transparent); }
+  .w-mark svg { width:30px; height:30px; }
+  .w-mark::after { content:''; position:absolute; inset:0; border-radius:inherit; border:2px solid var(--bubble-me); animation:ring 2.8s ease-out infinite; }
+  @keyframes ring { 0% { opacity:.55; transform:scale(1); } 100% { opacity:0; transform:scale(1.6); } }
+  .w-title { font-size:32px; line-height:1.12; letter-spacing:-.03em; font-weight:750; margin:0 0 12px; }
+  .w-sub { font-size:16px; line-height:1.5; color:var(--muted); margin:0 0 26px; max-width:340px; }
+
+  .w-demo { width:100%; max-width:320px; background:var(--panel); border:1px solid var(--border); border-radius:24px;
+    padding:14px 14px 16px; box-shadow:var(--shadow); text-align:left; margin-bottom:28px; }
+  .d-head { display:flex; align-items:center; gap:10px; padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid var(--border); }
+  .d-av { width:32px; height:32px; border-radius:50%; background:hsl(200,55%,50%); color:#fff; font-weight:700; font-size:14px; display:flex; align-items:center; justify-content:center; }
+  .d-name { font-size:14px; font-weight:650; line-height:1.2; }
+  .d-state { font-size:11.5px; color:var(--ok); font-weight:600; }
+  .d-body { display:flex; flex-direction:column; gap:8px; height:150px; overflow:hidden; }
+  .d-slot { display:grid; } .d-slot > * { grid-area:1/1; }
+  .d-b { max-width:82%; padding:8px 13px; border-radius:17px; font-size:14px; line-height:1.35; opacity:0; }
+  .d-in { align-self:flex-start; background:var(--panel-2); border-bottom-left-radius:6px; }
+  .d-out { align-self:flex-end; background:var(--bubble-me); color:var(--bubble-me-text); border-bottom-right-radius:6px; }
+  .d-slot .d-in { justify-self:start; } .d-slot .d-out { justify-self:end; }
+  .d-typing { display:flex; gap:4px; align-items:center; padding:11px 14px; }
+  .d-typing i { width:6px; height:6px; border-radius:50%; background:var(--muted); animation:dot 1s ease-in-out infinite; }
+  .d-typing i:nth-child(2) { animation-delay:.15s; } .d-typing i:nth-child(3) { animation-delay:.3s; }
+  @keyframes dot { 0%,60%,100% { transform:translateY(0); opacity:.5; } 30% { transform:translateY(-4px); opacity:1; } }
+  #welcome.show .d-b1 { animation:bubA 10s infinite; }
+  #welcome.show .d-b2 { animation:bubB 10s infinite; }
+  #welcome.show .d-typing { animation:bubT 10s infinite; }
+  #welcome.show .d-b3 { animation:bubC 10s infinite; }
+  #welcome.show .d-b4 { animation:bubD 10s infinite; }
+  @keyframes bubA { 0%,4% { opacity:0; transform:translateY(10px) scale(.96); } 8%,93% { opacity:1; transform:none; } 97%,100% { opacity:0; } }
+  @keyframes bubB { 0%,20% { opacity:0; transform:translateY(10px) scale(.96); } 25%,93% { opacity:1; transform:none; } 97%,100% { opacity:0; } }
+  @keyframes bubT { 0%,36% { opacity:0; transform:translateY(8px); } 40%,54% { opacity:1; transform:none; } 57%,100% { opacity:0; } }
+  @keyframes bubC { 0%,55% { opacity:0; transform:translateY(10px) scale(.96); } 60%,93% { opacity:1; transform:none; } 97%,100% { opacity:0; } }
+  @keyframes bubD { 0%,73% { opacity:0; transform:translateY(10px) scale(.96); } 78%,93% { opacity:1; transform:none; } 97%,100% { opacity:0; } }
+  @media (prefers-reduced-motion: reduce) { #welcome .d-b { opacity:1 !important; } #welcome .d-typing { display:none; } }
+
+  .w-cta { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; max-width:320px; border:none;
+    background:var(--bubble-me); color:var(--bubble-me-text); padding:16px 28px; border-radius:16px; font-size:16.5px; font-weight:650;
+    cursor:pointer; box-shadow:0 10px 26px color-mix(in srgb, var(--bubble-me) 38%, transparent); transition:transform .15s, box-shadow .15s; }
+  .w-cta:hover { transform:translateY(-2px); box-shadow:0 14px 32px color-mix(in srgb, var(--bubble-me) 45%, transparent); }
+  .w-cta:active { transform:scale(.98); }
+  .w-cta svg { animation:nudge 1.6s ease-in-out infinite; }
+  @keyframes nudge { 0%,100% { transform:translateX(0); } 50% { transform:translateX(5px); } }
+  .w-link { border:none; background:none; color:var(--muted); font-size:14.5px; margin-top:16px; cursor:pointer; padding:6px 10px; border-radius:10px; }
+  .w-link b { color:var(--bubble-me); font-weight:650; }
+  .w-link:hover { background:var(--panel-2); }
+  .w-feats { display:flex; gap:22px; justify-content:center; margin-top:34px; }
+  .w-feat { display:flex; flex-direction:column; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); }
+  .w-feat span { width:44px; height:44px; border-radius:14px; background:var(--panel); border:1px solid var(--border); color:var(--bubble-me); display:flex; align-items:center; justify-content:center; }
+  #authCard.auth-in { animation:authIn .5s cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes authIn { from { opacity:0; transform:translateY(22px) scale(.96); } to { opacity:1; transform:none; } }
+  .linkbtn { border:none; background:none; color:var(--muted); font-size:13.5px; cursor:pointer; padding:8px 0 0; display:block; margin:6px auto 0; }
+  .linkbtn:hover { color:var(--text); }
   @media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; scroll-behavior:auto !important; } }
 </style>
 </head>
 <body>
 
-<div id="authOverlay">
+<div id="authOverlay" style="display:none">
   <div id="authCard">
     <div class="brand"><div class="mark"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg></div><b>Messenger</b></div>
     <div class="tabs">
@@ -237,6 +327,58 @@
     <div id="authError"></div>
     <button id="authSubmit" class="primary" type="button">Sign in</button>
     <div id="authNote"></div>
+    <button id="backToStart" class="linkbtn" type="button">Back to start</button>
+  </div>
+</div>
+
+<div id="welcome" role="dialog" aria-labelledby="wTitle">
+  <div class="w-orb a"></div><div class="w-orb b"></div>
+  <div class="w-inner">
+    <div class="w-mark w-in" style="--d:0"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg></div>
+    <h1 class="w-title w-in" id="wTitle" style="--d:120">Your conversations, all in one place</h1>
+    <p class="w-sub w-in" style="--d:240">Group chat, private messages, voice notes and calls. Sign in to pick up where you left off.</p>
+    <div class="w-demo w-in" style="--d:380" aria-hidden="true">
+      <div class="d-head"><div class="d-av">M</div><div><div class="d-name">Maya</div><div class="d-state">Active now</div></div></div>
+      <div class="d-body">
+        <div class="d-b d-in d-b1">Are we still on for tonight?</div>
+        <div class="d-b d-out d-b2">Yes! Sending the address now</div>
+        <div class="d-slot">
+          <div class="d-b d-in d-typing"><i></i><i></i><i></i></div>
+          <div class="d-b d-in d-b3">Perfect, see you at 8</div>
+        </div>
+        <div class="d-b d-out d-b4">Running 5 minutes late</div>
+      </div>
+    </div>
+    <button id="wStart" class="w-cta w-in" type="button" style="--d:520">Get started <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    <button id="wCreate" class="w-link w-in" type="button" style="--d:600">New here? <b>Create an account</b></button>
+    <div class="w-feats w-in" style="--d:700">
+      <div class="w-feat"><span><svg class="i" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>Private chats</div>
+      <div class="w-feat"><span><svg class="i" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg></span>Voice calls</div>
+      <div class="w-feat"><span><svg class="i" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M20 16l-5-5-8 8"/></svg></span>Photos and video</div>
+    </div>
+  </div>
+</div>
+
+<div id="settingsOverlay">
+  <div id="settingsCard" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="settings-head"><h2 id="settingsTitle">Settings</h2><button id="settingsClose" type="button" aria-label="Close">✕</button></div>
+    <p class="settings-email" id="settingsEmail"></p>
+    <div class="settings-section" style="border-top:none;margin-top:0;padding-top:0">
+      <h3>Display name</h3>
+      <label for="setName">Name shown to others</label>
+      <input id="setName" maxlength="24" autocomplete="nickname" />
+      <div class="settings-msg" id="nameMsg"></div>
+      <button id="saveNameBtn" class="primary" type="button">Save name</button>
+    </div>
+    <div class="settings-section">
+      <h3>Password</h3>
+      <label for="setPass">New password</label>
+      <input id="setPass" type="password" autocomplete="new-password" />
+      <label for="setPass2">Confirm new password</label>
+      <input id="setPass2" type="password" autocomplete="new-password" />
+      <div class="settings-msg" id="passMsg"></div>
+      <button id="savePassBtn" class="primary" type="button">Update password</button>
+    </div>
   </div>
 </div>
 
@@ -249,6 +391,7 @@
   <div class="sub">
     <button id="callBtn" class="callBtn" type="button" title="Voice call" aria-label="Voice call"><svg class="i" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg></button>
     <span id="who"></span>
+    <button id="settingsBtn" class="callBtn" type="button" title="Settings" aria-label="Settings" style="display:none"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
     <button id="signOutBtn" type="button" title="Sign out" aria-label="Sign out" style="display:none"><svg class="i" viewBox="0 0 24 24"><path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9"/></svg></button>
   </div>
 </header>
@@ -1844,12 +1987,125 @@
     }
   });
 
+  // --- Welcome page: shown first to signed-out visitors, then leads into login / sign-up ---
+  const welcome = document.getElementById('welcome');
+  const authCardEl = document.getElementById('authCard');
+  let welcomeSeen = false;
+
+  function showWelcome() {
+    welcome.classList.remove('play', 'leaving');
+    welcome.classList.add('show');
+    void welcome.offsetWidth; // restart the entrance animation
+    welcome.classList.add('play');
+  }
+  function hideWelcomeNow() {
+    welcomeSeen = true;
+    welcome.classList.remove('show', 'play', 'leaving');
+  }
+  function leaveWelcome(nextMode) {
+    if (!welcome.classList.contains('show') || welcome.classList.contains('leaving')) return;
+    welcomeSeen = true;
+    setMode(nextMode);
+    authCardEl.classList.remove('auth-in');
+    void authCardEl.offsetWidth;
+    authCardEl.classList.add('auth-in');
+    welcome.classList.add('leaving');
+    setTimeout(() => {
+      welcome.classList.remove('show', 'play', 'leaving');
+      (nextMode === 'signup' ? displayNameInput : emailInput).focus();
+    }, 450);
+  }
+  document.getElementById('wStart').addEventListener('click', () => leaveWelcome('signin'));
+  document.getElementById('wCreate').addEventListener('click', () => leaveWelcome('signup'));
+  document.getElementById('backToStart').addEventListener('click', showWelcome);
+
+  // --- Settings: change display name and password ---
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsOverlay = document.getElementById('settingsOverlay');
+  const settingsClose = document.getElementById('settingsClose');
+  const settingsEmail = document.getElementById('settingsEmail');
+  const setName = document.getElementById('setName');
+  const setPass = document.getElementById('setPass');
+  const setPass2 = document.getElementById('setPass2');
+  const nameMsg = document.getElementById('nameMsg');
+  const passMsg = document.getElementById('passMsg');
+  const saveNameBtn = document.getElementById('saveNameBtn');
+  const savePassBtn = document.getElementById('savePassBtn');
+
+  function setMsg(el, text, ok) { el.textContent = text || ''; el.className = 'settings-msg' + (text ? (ok ? ' ok' : ' err') : ''); }
+
+  async function openSettings() {
+    if (!myId) return;
+    setName.value = myName || '';
+    setPass.value = ''; setPass2.value = '';
+    setMsg(nameMsg, ''); setMsg(passMsg, '');
+    settingsEmail.textContent = '';
+    settingsOverlay.classList.add('show');
+    try { const { data } = await client.auth.getUser(); settingsEmail.textContent = data?.user?.email || ''; } catch (_) {}
+    setTimeout(() => setName.focus(), 50);
+  }
+  function closeSettings() { settingsOverlay.classList.remove('show'); setPass.value = ''; setPass2.value = ''; }
+
+  settingsBtn.addEventListener('click', openSettings);
+  settingsClose.addEventListener('click', closeSettings);
+  settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) closeSettings(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && settingsOverlay.classList.contains('show')) closeSettings(); });
+  setName.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveNameBtn.click(); } });
+  [setPass, setPass2].forEach(el => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); savePassBtn.click(); } }));
+
+  saveNameBtn.addEventListener('click', async () => {
+    const name = setName.value.trim();
+    setMsg(nameMsg, '');
+    if (!name) { setMsg(nameMsg, 'Enter a display name.'); return; }
+    if (name === myName) { setMsg(nameMsg, 'That is already your display name.'); return; }
+    saveNameBtn.disabled = true;
+    try {
+      const { error } = await client.auth.updateUser({ data: { display_name: name } });
+      if (error) throw error;
+      myName = name;
+      whoEl.textContent = name;
+      // Keep the contact list in sync for other people (best effort).
+      await client.from('profiles').update({ username: name }).eq('id', myId).then(() => {}, () => {});
+      setMsg(nameMsg, 'Display name updated. New messages will use it.', true);
+    } catch (e) {
+      setMsg(nameMsg, e.message || 'Could not update your name.');
+    } finally {
+      saveNameBtn.disabled = false;
+    }
+  });
+
+  savePassBtn.addEventListener('click', async () => {
+    const pw = setPass.value, pw2 = setPass2.value;
+    setMsg(passMsg, '');
+    if (pw.length < 6) { setMsg(passMsg, 'Use at least 6 characters.'); return; }
+    if (pw !== pw2) { setMsg(passMsg, 'The two passwords do not match.'); return; }
+    savePassBtn.disabled = true;
+    try {
+      const { error } = await client.auth.updateUser({ password: pw });
+      if (error) throw error;
+      setPass.value = ''; setPass2.value = '';
+      setMsg(passMsg, 'Password updated.', true);
+    } catch (e) {
+      setMsg(passMsg, e.message || 'Could not update your password.');
+    } finally {
+      savePassBtn.disabled = false;
+    }
+  });
+
   client.auth.onAuthStateChange((event, session) => {
+    if (session && session.user && myId === session.user.id && (event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED')) {
+      // Same person, just refreshed data: don't tear down and rebuild the chat.
+      myName = session.user.user_metadata?.display_name || myName;
+      whoEl.textContent = myName;
+      return;
+    }
     if (session && session.user) {
       myId = session.user.id;
       myName = session.user.user_metadata?.display_name || session.user.email.split('@')[0];
       whoEl.textContent = myName;
       signOutBtn.style.display = 'flex';
+      settingsBtn.style.display = 'flex';
+      hideWelcomeNow();
       authOverlay.style.display = 'none';
       setTimeout(async () => {
         await ensureProfile();
@@ -1864,7 +2120,10 @@
       myId = null; myName = null;
       whoEl.textContent = '';
       signOutBtn.style.display = 'none';
+      settingsBtn.style.display = 'none';
+      closeSettings();
       authOverlay.style.display = 'flex';
+      if (!welcomeSeen) showWelcome();
       feed.innerHTML = '<div class="empty">Sign in to see the chat.</div>';
       if (channel) { client.removeChannel(channel); channel = null; }
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
